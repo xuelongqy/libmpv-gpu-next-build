@@ -36,6 +36,21 @@ To run the macOS smoke client with a local video:
 ./scripts/run-macos-smoke.sh --renderer gpu-next --output sdr VIDEO.mkv
 ```
 
+For a connected Android device, install the APK produced by
+`build-android.sh`, grant it video access, push an untracked test clip, and run
+one explicit case:
+
+```sh
+adb install -r -t .work/mpv-android/app/build/outputs/apk/default/debug/app-default-arm64-v8a-debug.apk
+adb shell pm grant is.xyz.mpv.gpunextsmoke android.permission.READ_MEDIA_VIDEO
+adb push VIDEO.mkv /sdcard/Download/libmpv-gpu-next-smoke.mkv
+./smoke/android/run-case.sh sdr-gpu-next gpu-next sdr no /sdcard/Download/libmpv-gpu-next-smoke.mkv
+```
+
+The case fails unless both the Render API context and the first video frame
+are observed, and also rejects file-open and renderer errors. Results remain
+ignored under `results/`.
+
 The Android patch supports only the Render API path. It deliberately excludes
 the experimental `wid` HDR reconfiguration workaround. See `PATCHES.md` for
 API behavior and platform boundaries, and `VALIDATION.md` for the recorded

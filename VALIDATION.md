@@ -55,5 +55,28 @@ Android Pixel 4, GLES 3.2:
 - surface recreation, rotation, background/foreground, playback end, and
   context teardown were exercised.
 
+The maintained source combination was revalidated on the same Pixel 4 on
+2026-09-04, running Android 13 (`TP1A.221005.002.B2`):
+
+- the device reported HDR10 and HLG support with 500 nit peak luminance;
+- the runtime identified mpv as `c30a27722` and libplacebo as `6476b2e8`;
+- SDR rendered with both `gpu` and `gpu-next` through GLES 3.2 RGBA8/sRGB;
+- HDR10 used the MediaCodec hardware decoder, retained BT.2020/PQ input
+  metadata, and presented an RGB10A2 `BT2020_PQ` SurfaceFlinger layer;
+- Dolby Vision Profile 5 software decoding retained
+  `dolbyvision/bt.2020/pq` and rendered to both SDR and PQ targets without
+  green/magenta output;
+- the Dolby Vision PQ target was also reported as RGB10A2 with `BT2020_PQ`
+  dataspace by SurfaceFlinger;
+- rotation updated the render target from 1080x2280 to 2280x1080, and surface
+  detach/attach, background/foreground, natural playback end, opening a second
+  file, and native context shutdown completed without a crash or hang;
+- no Render API creation, GL, shader compilation, or scaler-dispatch failure
+  was present in the playback cases.
+
+Android screenshots were inspected only for gross color failures. The
+RGB10A2 format and SurfaceFlinger dataspace, rather than SDR screenshots, are
+the evidence that PQ output was active.
+
 These Dolby Vision checks validate decoding and mapping to SDR or HDR10/PQ.
 They do not claim native Dolby Vision display output.
