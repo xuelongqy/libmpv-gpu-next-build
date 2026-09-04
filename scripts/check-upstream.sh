@@ -57,6 +57,8 @@ if [[ "$build_merged" == true ]]; then
     require_command meson
     require_command ninja
     require_command pkg-config
+    git -C "$compat_root/libplacebo" submodule sync --recursive
+    git -C "$compat_root/libplacebo" submodule update --init --recursive
 
     run_root=$(mktemp -d "$compat_root/build.XXXXXX")
     prefix="$run_root/prefix"
