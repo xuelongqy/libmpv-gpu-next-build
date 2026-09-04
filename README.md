@@ -27,6 +27,7 @@ silently replace the pinned source.
 ./scripts/build-sanitize.sh    # ASan/UBSan libmpv suite
 ./scripts/build-android.sh     # Android arm64, NDK r29
 ./scripts/check-upstream.sh    # non-mutating compatibility merge in .work
+./scripts/check-upstream.sh --build  # also build/test merged trees on Linux
 ```
 
 To run the macOS smoke client with a local video:

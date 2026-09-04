@@ -13,5 +13,15 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential ninja-build pipx pkg-config \
+            libavcodec-dev libavdevice-dev libavfilter-dev libavformat-dev \
+            libavutil-dev libswresample-dev libswscale-dev libass-dev \
+            libdav1d-dev libegl-dev libgl-dev liblcms2-dev libunwind-dev \
+            libxxhash-dev
+          pipx install meson==1.12.0
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - name: Check maintained branches against upstream master
-        run: ./scripts/check-upstream.sh
+        run: ./scripts/check-upstream.sh --build
