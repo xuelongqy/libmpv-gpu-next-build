@@ -1,0 +1,571 @@
+diff --git a/app/build.gradle b/app/build.gradle
+index 827dd50..6fa08f7 100644
+--- a/app/build.gradle
++++ b/app/build.gradle
+@@ -8,6 +8,7 @@ android {
+     compileSdk = 36
+ 
+     defaultConfig {
++        applicationId "is.xyz.mpv.gpunextsmoke"
+         minSdkVersion 23
+         targetSdk 36
+ 
+diff --git a/app/src/main/AndroidManifest.xml b/app/src/main/AndroidManifest.xml
+index 36fdc63..2705f5a 100644
+--- a/app/src/main/AndroidManifest.xml
++++ b/app/src/main/AndroidManifest.xml
+@@ -8,7 +8,7 @@
+     <uses-feature
+         android:name="android.hardware.touchscreen"
+         android:required="false" />
+-    <uses-feature android:glEsVersion="0x00020000" />
++    <uses-feature android:glEsVersion="0x00030000" />
+ 
+     <uses-permission android:name="android.permission.INTERNET" />
+     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+@@ -35,6 +35,7 @@
+ 
+         <activity
+             android:name=".MPVActivity"
++            android:colorMode="wideColorGamut"
+             android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenLayout|uiMode|screenSize|smallestScreenSize"
+             android:supportsPictureInPicture="true"
+             android:launchMode="singleTask"
+diff --git a/app/src/main/java/is/xyz/mpv/BaseMPVView.kt b/app/src/main/java/is/xyz/mpv/BaseMPVView.kt
+index 7d04532..d185efc 100644
+--- a/app/src/main/java/is/xyz/mpv/BaseMPVView.kt
++++ b/app/src/main/java/is/xyz/mpv/BaseMPVView.kt
+@@ -46,6 +46,8 @@ abstract class BaseMPVView(context: Context, attrs: AttributeSet) : SurfaceView(
+         // Disable surface callbacks to avoid using uninitialized mpv state
+         holder.removeCallback(this)
+ 
++        MPVLib.setPropertyString("vo", "null")
++        MPVLib.detachSurface()
+         MPVLib.destroy()
+     }
+ 
+@@ -55,6 +57,8 @@ abstract class BaseMPVView(context: Context, attrs: AttributeSet) : SurfaceView(
+     protected abstract fun observeProperties()
+ 
+     private var filePath: String? = null
++    protected var renderApiRenderer = "gpu-next"
++    protected var renderApiOutput = "sdr"
+ 
+     /**
+      * Set the first file to be played once the player is ready.
+@@ -63,15 +67,12 @@ abstract class BaseMPVView(context: Context, attrs: AttributeSet) : SurfaceView(
+         this.filePath = filePath
+     }
+ 
+-    private var voInUse: String = "gpu"
+-
+-    /**
+-     * Sets the VO to use.
+-     * It is automatically disabled/enabled when the surface dis-/appears.
+-     */
+-    fun setVo(vo: String) {
+-        voInUse = vo
+-        MPVLib.setOptionString("vo", vo)
++    fun setRenderer(renderer: String, output: String) {
++        require(renderer == "gpu" || renderer == "gpu-next")
++        require(output == "sdr" || output == "pq")
++        renderApiRenderer = renderer
++        renderApiOutput = output
++        MPVLib.setOptionString("vo", "libmpv")
+     }
+ 
+     // Surface callbacks
+@@ -82,7 +83,10 @@ abstract class BaseMPVView(context: Context, attrs: AttributeSet) : SurfaceView(
+ 
+     override fun surfaceCreated(holder: SurfaceHolder) {
+         Log.w(TAG, "attaching surface")
+-        MPVLib.attachSurface(holder.surface)
++        val error = MPVLib.attachSurface(holder.surface, renderApiRenderer,
++                                         renderApiOutput)
++        if (error < 0)
++            Log.e(TAG, "Video surface attach failed: $error")
+         // This forces mpv to render subs/osd/whatever into our surface even if it would ordinarily not
+         MPVLib.setOptionString("force-window", "yes")
+ 
+@@ -90,8 +94,7 @@ abstract class BaseMPVView(context: Context, attrs: AttributeSet) : SurfaceView(
+             MPVLib.command(arrayOf("loadfile", filePath as String))
+             filePath = null
+         } else {
+-            // We disable video output when the context disappears, enable it back
+-            MPVLib.setPropertyString("vo", voInUse)
++            MPVLib.setPropertyString("vo", "libmpv")
+         }
+     }
+ 
+@@ -99,10 +102,6 @@ abstract class BaseMPVView(context: Context, attrs: AttributeSet) : SurfaceView(
+         Log.w(TAG, "detaching surface")
+         MPVLib.setPropertyString("vo", "null")
+         MPVLib.setPropertyString("force-window", "no")
+-        // Note that before calling detachSurface() we need to be sure that libmpv
+-        // is done using the surface.
+-        // FIXME: There could be a race condition here, because I don't think
+-        // setting a property will wait for VO deinit.
+         MPVLib.detachSurface()
+     }
+ 
+diff --git a/app/src/main/java/is/xyz/mpv/MPVActivity.kt b/app/src/main/java/is/xyz/mpv/MPVActivity.kt
+index c9fb391..6465df2 100644
+--- a/app/src/main/java/is/xyz/mpv/MPVActivity.kt
++++ b/app/src/main/java/is/xyz/mpv/MPVActivity.kt
+@@ -254,6 +254,10 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver, TouchGesturesObse
+     override fun onCreate(icicle: Bundle?) {
+         super.onCreate(icicle)
+ 
++        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
++            intent.getStringExtra("output") == "pq")
++            window.colorMode = ActivityInfo.COLOR_MODE_HDR
++
+         // Do these here and not in MainActivity because mpv can be launched from a file browser
+         Utils.copyAssets(this)
+         BackgroundPlaybackService.createNotificationChannel(this)
+@@ -290,7 +294,7 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver, TouchGesturesObse
+         updateOrientation(true)
+ 
+         // Parse the intent
+-        val filepath = parsePathFromIntent(intent)
++        val filepath = intent.getStringExtra("file") ?: parsePathFromIntent(intent)
+         if (intent.action == Intent.ACTION_VIEW) {
+             parseIntentExtras(intent.extras)
+         }
+diff --git a/app/src/main/java/is/xyz/mpv/MPVLib.kt b/app/src/main/java/is/xyz/mpv/MPVLib.kt
+index deefad9..25d3ccc 100644
+--- a/app/src/main/java/is/xyz/mpv/MPVLib.kt
++++ b/app/src/main/java/is/xyz/mpv/MPVLib.kt
+@@ -18,7 +18,8 @@ object MPVLib {
+     external fun create(appctx: Context)
+     external fun init()
+     external fun destroy()
+-    external fun attachSurface(surface: Surface)
++    external fun attachSurface(surface: Surface, renderer: String,
++                               output: String): Int
+     external fun detachSurface()
+ 
+     external fun command(cmd: Array<out String>)
+diff --git a/app/src/main/java/is/xyz/mpv/MPVView.kt b/app/src/main/java/is/xyz/mpv/MPVView.kt
+index 2544d4c..7c40c26 100644
+--- a/app/src/main/java/is/xyz/mpv/MPVView.kt
++++ b/app/src/main/java/is/xyz/mpv/MPVView.kt
+@@ -22,17 +22,15 @@ internal class MPVView(context: Context, attrs: AttributeSet) : BaseMPVView(cont
+         // apply phone-optimized defaults
+         MPVLib.setOptionString("profile", "fast")
+ 
+-        // vo
+-        setVo(if (sharedPreferences.getBoolean("gpu_next", false))
+-            "gpu-next"
+-        else
+-            "gpu")
++        val activity = context as? MPVActivity
++        val renderer = activity?.intent?.getStringExtra("renderer") ?: "gpu-next"
++        val output = activity?.intent?.getStringExtra("output") ?: "sdr"
++        val requestedHwdec = activity?.intent?.getStringExtra("hwdec")
++        setRenderer(renderer, output)
+ 
+         // hwdec
+-        val hwdec = if (sharedPreferences.getBoolean("hardware_decoding", true))
+-            HWDECS
+-        else
+-            "no"
++        val hwdec = requestedHwdec ?: if (
++            sharedPreferences.getBoolean("hardware_decoding", true)) HWDECS else "no"
+ 
+         // vo: set display fps as reported by android
+         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+@@ -103,6 +101,11 @@ internal class MPVView(context: Context, attrs: AttributeSet) : BaseMPVView(cont
+         MPVLib.setOptionString("tls-verify", "yes")
+         MPVLib.setOptionString("tls-ca-file", "${this.context.filesDir.path}/cacert.pem")
+         MPVLib.setOptionString("input-default-bindings", "yes")
++        if (output == "pq") {
++            MPVLib.setOptionString("target-prim", "bt.2020")
++            MPVLib.setOptionString("target-trc", "pq")
++            MPVLib.setOptionString("target-peak", "500")
++        }
+         // Limit demuxer cache since the defaults are too high for mobile devices
+         val cacheMegs = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) 64 else 32
+         MPVLib.setOptionString("demuxer-max-bytes", "${cacheMegs * 1024 * 1024}")
+diff --git a/app/src/main/jni/Android.mk b/app/src/main/jni/Android.mk
+index 8532ecd..29cfa6f 100644
+--- a/app/src/main/jni/Android.mk
++++ b/app/src/main/jni/Android.mk
+@@ -76,7 +76,7 @@ LOCAL_SRC_FILES := \
+ 	property.cpp \
+ 	event.cpp \
+ 	thumbnail.cpp
+-LOCAL_LDLIBS    := -llog -latomic
++LOCAL_LDLIBS    := -llog -latomic -landroid -ldl -lEGL -lGLESv3
+ LOCAL_SHARED_LIBRARIES := swscale avcodec mpv
+ 
+ include $(BUILD_SHARED_LIBRARY)
+diff --git a/app/src/main/jni/render.cpp b/app/src/main/jni/render.cpp
+index 1df2bb5..f1535f5 100644
+--- a/app/src/main/jni/render.cpp
++++ b/app/src/main/jni/render.cpp
+@@ -1,38 +1,346 @@
+ #include <jni.h>
+ 
++#include <android/data_space.h>
++#include <android/native_window.h>
++#include <android/native_window_jni.h>
++#include <dlfcn.h>
++#include <EGL/egl.h>
++#include <EGL/eglext.h>
++#include <GLES3/gl3.h>
++#include <pthread.h>
++#include <stdio.h>
++#include <string.h>
++
+ #include <mpv/client.h>
++#include <mpv/render_gl.h>
+ 
++#include "globals.h"
+ #include "jni_utils.h"
+ #include "log.h"
+-#include "globals.h"
++
++#ifndef EGL_GL_COLORSPACE_BT2020_PQ_EXT
++#define EGL_GL_COLORSPACE_BT2020_PQ_EXT 0x3340
++#endif
+ 
+ extern "C" {
+-    jni_func(void, attachSurface, jobject surface_);
++    jni_func(jint, attachSurface, jobject surface, jstring renderer,
++             jstring output);
+     jni_func(void, detachSurface);
+ };
+ 
+-static jobject surface;
++struct render_state {
++    pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
++    pthread_cond_t wakeup = PTHREAD_COND_INITIALIZER;
++    pthread_t thread;
++    ANativeWindow *window;
++    char renderer[16];
++    bool pq;
++    bool running;
++    bool stop;
++    bool update;
++    bool initialized;
++    int init_error;
++};
+ 
+-jni_func(void, attachSurface, jobject surface_) {
+-    CHECK_MPV_INIT();
++static render_state state;
+ 
+-    surface = env->NewGlobalRef(surface_);
+-    if (!surface)
+-        die("invalid surface provided");
+-    int64_t wid = reinterpret_cast<intptr_t>(surface);
+-    int result = mpv_set_option(g_mpv, "wid", MPV_FORMAT_INT64, &wid);
+-    if (result < 0)
+-         ALOGE("mpv_set_option(wid) returned error %s", mpv_error_string(result));
++static bool has_extension(const char *extensions, const char *name)
++{
++    size_t len = strlen(name);
++    for (const char *p = extensions; p && (p = strstr(p, name)); p += len) {
++        if ((p == extensions || p[-1] == ' ') &&
++            (p[len] == '\0' || p[len] == ' '))
++            return true;
++    }
++    return false;
++}
++
++static bool set_pq_dataspace(ANativeWindow *window)
++{
++    using set_buffers_dataspace_fn = int32_t (*)(ANativeWindow *, int32_t);
++    void *lib = dlopen("libnativewindow.so", RTLD_NOW | RTLD_LOCAL);
++    set_buffers_dataspace_fn set_buffers_dataspace =
++        reinterpret_cast<set_buffers_dataspace_fn>(
++            lib ? dlsym(lib, "ANativeWindow_setBuffersDataSpace") : nullptr);
++    if (!set_buffers_dataspace) {
++        ALOGE("PQ unsupported: missing native-window dataspace API");
++        if (lib)
++            dlclose(lib);
++        return false;
++    }
++
++    int error = set_buffers_dataspace(window, ADATASPACE_BT2020_PQ);
++    dlclose(lib);
++    if (error)
++        ALOGE("BT.2020/PQ dataspace failed: %d", error);
++    return !error;
++}
++
++static void *get_proc_address(void *, const char *name)
++{
++    void *proc = reinterpret_cast<void *>(eglGetProcAddress(name));
++    return proc ? proc : dlsym(RTLD_DEFAULT, name);
++}
++
++static void request_render(void *)
++{
++    pthread_mutex_lock(&state.lock);
++    state.update = true;
++    pthread_cond_signal(&state.wakeup);
++    pthread_mutex_unlock(&state.lock);
+ }
+ 
+-jni_func(void, detachSurface) {
++static void signal_initialized(int error)
++{
++    pthread_mutex_lock(&state.lock);
++    state.init_error = error;
++    state.initialized = true;
++    pthread_cond_broadcast(&state.wakeup);
++    pthread_mutex_unlock(&state.lock);
++}
++
++static void *render_thread(void *)
++{
++    EGLDisplay display = EGL_NO_DISPLAY;
++    EGLSurface surface = EGL_NO_SURFACE;
++    EGLContext context = EGL_NO_CONTEXT;
++    mpv_render_context *render = nullptr;
++    int error = MPV_ERROR_GENERIC;
++    const char *extensions = nullptr;
++    const EGLint config_attrs[] = {
++        EGL_SURFACE_TYPE, EGL_WINDOW_BIT,
++        EGL_RENDERABLE_TYPE, EGL_OPENGL_ES3_BIT,
++        EGL_RED_SIZE, state.pq ? 10 : 8,
++        EGL_GREEN_SIZE, state.pq ? 10 : 8,
++        EGL_BLUE_SIZE, state.pq ? 10 : 8,
++        EGL_ALPHA_SIZE, state.pq ? 2 : 8,
++        EGL_NONE,
++    };
++    EGLConfig config = nullptr;
++    EGLint config_count = 0;
++    const EGLint surface_attrs[] = {
++        EGL_GL_COLORSPACE_KHR,
++        state.pq ? EGL_GL_COLORSPACE_BT2020_PQ_EXT : EGL_GL_COLORSPACE_SRGB_KHR,
++        EGL_NONE,
++    };
++    const EGLint context_attrs[] = {
++        EGL_CONTEXT_CLIENT_VERSION, 3,
++        EGL_NONE,
++    };
++    char api[] = MPV_RENDER_API_TYPE_OPENGL;
++    mpv_opengl_init_params gl_init = {
++        .get_proc_address = get_proc_address,
++    };
++    int advanced = 1;
++    mpv_render_param create_params[] = {
++        {MPV_RENDER_PARAM_API_TYPE, api},
++        {MPV_RENDER_PARAM_OPENGL_INIT_PARAMS, &gl_init},
++        {MPV_RENDER_PARAM_RENDERER, state.renderer},
++        {MPV_RENDER_PARAM_ADVANCED_CONTROL, &advanced},
++        {MPV_RENDER_PARAM_INVALID, nullptr},
++    };
++    EGLint red = 0, green = 0, blue = 0, alpha = 0;
++
++    display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
++    if (display == EGL_NO_DISPLAY || !eglInitialize(display, nullptr, nullptr)) {
++        ALOGE("Render API: eglInitialize failed: 0x%x", eglGetError());
++        goto done;
++    }
++
++    extensions = eglQueryString(display, EGL_EXTENSIONS);
++    if (state.pq &&
++        !has_extension(extensions, "EGL_EXT_gl_colorspace_bt2020_pq")) {
++        ALOGE("Render API: PQ unsupported: missing "
++              "EGL_EXT_gl_colorspace_bt2020_pq");
++        error = MPV_ERROR_NOT_IMPLEMENTED;
++        goto done;
++    }
++
++    if (!eglChooseConfig(display, config_attrs, &config, 1, &config_count) ||
++        config_count != 1) {
++        ALOGE("Render API: no %s EGL window config", state.pq ? "RGB10A2" :
++              "RGBA8");
++        error = MPV_ERROR_NOT_IMPLEMENTED;
++        goto done;
++    }
++
++    if (state.pq) {
++        if (!set_pq_dataspace(state.window)) {
++            error = MPV_ERROR_NOT_IMPLEMENTED;
++            goto done;
++        }
++    }
++
++    surface = eglCreateWindowSurface(display, config, state.window, surface_attrs);
++    if (surface == EGL_NO_SURFACE) {
++        ALOGE("Render API: eglCreateWindowSurface failed: 0x%x", eglGetError());
++        error = state.pq ? MPV_ERROR_NOT_IMPLEMENTED : MPV_ERROR_GENERIC;
++        goto done;
++    }
++
++    context = eglCreateContext(display, config, EGL_NO_CONTEXT, context_attrs);
++    if (context == EGL_NO_CONTEXT ||
++        !eglMakeCurrent(display, surface, surface, context)) {
++        ALOGE("Render API: GLES3 context failed: 0x%x", eglGetError());
++        goto done;
++    }
++
++    error = mpv_render_context_create(&render, g_mpv, create_params);
++    if (error < 0) {
++        ALOGE("Render API: renderer=%s create failed: %s (%d)", state.renderer,
++              mpv_error_string(error), error);
++        goto done;
++    }
++    mpv_render_context_set_update_callback(render, request_render, nullptr);
++
++    eglGetConfigAttrib(display, config, EGL_RED_SIZE, &red);
++    eglGetConfigAttrib(display, config, EGL_GREEN_SIZE, &green);
++    eglGetConfigAttrib(display, config, EGL_BLUE_SIZE, &blue);
++    eglGetConfigAttrib(display, config, EGL_ALPHA_SIZE, &alpha);
++    ALOGV("Render API ready: renderer=%s output=%s GLES=%s "
++          "EGL=R%dG%dB%dA%d surface-colorspace=%s dataspace=%s",
++          state.renderer, state.pq ? "pq" : "sdr", glGetString(GL_VERSION),
++          red, green, blue, alpha, state.pq ? "BT2020_PQ" : "sRGB",
++          state.pq ? "BT2020_PQ" : "default");
++    error = 0;
++    signal_initialized(error);
++
++    while (true) {
++        pthread_mutex_lock(&state.lock);
++        while (!state.stop && !state.update)
++            pthread_cond_wait(&state.wakeup, &state.lock);
++        bool stop = state.stop;
++        state.update = false;
++        pthread_mutex_unlock(&state.lock);
++        if (stop)
++            break;
++
++        uint64_t flags = mpv_render_context_update(render);
++        if (!(flags & MPV_RENDER_UPDATE_FRAME))
++            continue;
++
++        int width = ANativeWindow_getWidth(state.window);
++        int height = ANativeWindow_getHeight(state.window);
++        glViewport(0, 0, width, height);
++        mpv_opengl_fbo fbo = {
++            .fbo = 0,
++            .w = width,
++            .h = height,
++        };
++        int flip_y = 1;
++        int block = 0;
++        int depth = state.pq ? 10 : 8;
++        mpv_render_param params[] = {
++            {MPV_RENDER_PARAM_OPENGL_FBO, &fbo},
++            {MPV_RENDER_PARAM_FLIP_Y, &flip_y},
++            {MPV_RENDER_PARAM_DEPTH, &depth},
++            {MPV_RENDER_PARAM_BLOCK_FOR_TARGET_TIME, &block},
++            {MPV_RENDER_PARAM_INVALID, nullptr},
++        };
++        int render_error = mpv_render_context_render(render, params);
++        if (render_error < 0) {
++            ALOGE("Render API: render failed: %s (%d)",
++                  mpv_error_string(render_error), render_error);
++            continue;
++        }
++        if (!eglSwapBuffers(display, surface))
++            ALOGE("Render API: eglSwapBuffers failed: 0x%x", eglGetError());
++    }
++
++done:
++    if (!state.initialized)
++        signal_initialized(error);
++    if (render) {
++        mpv_render_context_set_update_callback(render, nullptr, nullptr);
++        mpv_render_context_free(render);
++    }
++    if (display != EGL_NO_DISPLAY)
++        eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
++    if (context != EGL_NO_CONTEXT)
++        eglDestroyContext(display, context);
++    if (surface != EGL_NO_SURFACE)
++        eglDestroySurface(display, surface);
++    if (display != EGL_NO_DISPLAY)
++        eglTerminate(display);
++    ANativeWindow_release(state.window);
++
++    pthread_mutex_lock(&state.lock);
++    state.window = nullptr;
++    state.running = false;
++    pthread_cond_broadcast(&state.wakeup);
++    pthread_mutex_unlock(&state.lock);
++    return nullptr;
++}
++
++jni_func(jint, attachSurface, jobject surface, jstring renderer, jstring output)
++{
+     CHECK_MPV_INIT();
++    if (!surface || !renderer || !output)
++        return MPV_ERROR_INVALID_PARAMETER;
+ 
+-    int64_t wid = 0;
+-    int result = mpv_set_option(g_mpv, "wid", MPV_FORMAT_INT64, &wid);
++    const char *renderer_name = env->GetStringUTFChars(renderer, nullptr);
++    const char *output_name = env->GetStringUTFChars(output, nullptr);
++    bool valid_renderer = !strcmp(renderer_name, "gpu") ||
++                          !strcmp(renderer_name, "gpu-next");
++    bool valid_output = !strcmp(output_name, "sdr") ||
++                        !strcmp(output_name, "pq");
++    if (!valid_renderer || !valid_output) {
++        env->ReleaseStringUTFChars(renderer, renderer_name);
++        env->ReleaseStringUTFChars(output, output_name);
++        return MPV_ERROR_INVALID_PARAMETER;
++    }
++
++    bool pq = !strcmp(output_name, "pq");
++    pthread_mutex_lock(&state.lock);
++    if (state.running) {
++        env->ReleaseStringUTFChars(renderer, renderer_name);
++        env->ReleaseStringUTFChars(output, output_name);
++        pthread_mutex_unlock(&state.lock);
++        return MPV_ERROR_INVALID_PARAMETER;
++    }
++
++    snprintf(state.renderer, sizeof(state.renderer), "%s", renderer_name);
++    state.pq = pq;
++    env->ReleaseStringUTFChars(renderer, renderer_name);
++    env->ReleaseStringUTFChars(output, output_name);
++
++    state.window = ANativeWindow_fromSurface(env, surface);
++    if (!state.window) {
++        pthread_mutex_unlock(&state.lock);
++        return MPV_ERROR_INVALID_PARAMETER;
++    }
++    state.stop = false;
++    state.update = true;
++    state.initialized = false;
++    state.init_error = MPV_ERROR_GENERIC;
++    state.running = true;
++    if (pthread_create(&state.thread, nullptr, render_thread, nullptr)) {
++        ANativeWindow_release(state.window);
++        state.window = nullptr;
++        state.running = false;
++        pthread_mutex_unlock(&state.lock);
++        return MPV_ERROR_NOMEM;
++    }
++    while (!state.initialized)
++        pthread_cond_wait(&state.wakeup, &state.lock);
++    int result = state.init_error;
++    pthread_t thread = state.thread;
++    pthread_mutex_unlock(&state.lock);
+     if (result < 0)
+-         ALOGE("mpv_set_option(wid) returned error %s", mpv_error_string(result));
++        pthread_join(thread, nullptr);
++    return result;
++}
+ 
+-    env->DeleteGlobalRef(surface);
+-    surface = NULL;
++jni_func(void, detachSurface)
++{
++    pthread_mutex_lock(&state.lock);
++    if (!state.running) {
++        pthread_mutex_unlock(&state.lock);
++        return;
++    }
++    state.stop = true;
++    pthread_cond_signal(&state.wakeup);
++    pthread_t thread = state.thread;
++    pthread_mutex_unlock(&state.lock);
++    pthread_join(thread, nullptr);
+ }

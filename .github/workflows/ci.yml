@@ -1,0 +1,55 @@
+name: pinned source validation
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential meson ninja-build pkg-config \
+            libavcodec-dev libavfilter-dev libavformat-dev libavutil-dev \
+            libswresample-dev libswscale-dev libass-dev libdav1d-dev \
+            libegl-dev libgl-dev \
+            liblcms2-dev libunwind-dev libxxhash-dev
+      - name: Build and test OpenGL
+        run: ./scripts/build-linux.sh
+      - name: Build and test without OpenGL
+        run: ./scripts/build-no-gl.sh
+
+  macos:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: brew install meson ninja pkgconf ffmpeg libass little-cms2 sdl2 \
+          molten-vk vulkan-headers vulkan-loader
+      - name: Build and test
+        run: ./scripts/build-macos.sh
+
+  android-arm64:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y autoconf automake curl gperf libtool \
+            meson ninja-build pkg-config unzip wget
+      - name: Cross-compile Android arm64
+        run: ./scripts/build-android.sh

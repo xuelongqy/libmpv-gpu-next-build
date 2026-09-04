@@ -1,0 +1,14 @@
+.work/
+results/
+*.log
+*.png
+*.ppm
+*.dmg
+*.apk
+*.aar
+*.so
+*.dylib
+*.mkv
+*.mp4
+*.mov
+.DS_Store

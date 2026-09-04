@@ -1,0 +1,134 @@
+From 011d7e15ee4ae74ae7e79bc957f80276d740df90 Mon Sep 17 00:00:00 2001
+From: xuelongqy <xuelongqy@qq.com>
+Date: Wed, 2 Sep 2026 14:23:12 +0800
+Subject: [PATCH] shaders: fix scaling rectangle samplers
+
+Derive the source size from the texel step instead of querying the sampler. This keeps normalized sampler behavior unchanged while avoiding invalid textureSize overloads and preserving unnormalized rectangle coordinates.
+---
+ src/shaders/sampling.c | 16 ++++++++--------
+ src/tests/dummy.c      | 26 ++++++++++++++++++++++++++
+ 2 files changed, 34 insertions(+), 8 deletions(-)
+
+diff --git a/src/shaders/sampling.c b/src/shaders/sampling.c
+index 49577c16..b56b8de2 100644
+--- a/src/shaders/sampling.c
++++ b/src/shaders/sampling.c
+@@ -336,7 +336,7 @@ bool pl_shader_sample_bicubic(pl_shader sh, const struct pl_sample_src *src)
+     vec4 color;                                     \
+     {                                               \
+     vec2 pos = $pos;                                \
+-    vec2 size = vec2(textureSize($tex, 0));         \
++    vec2 size = vec2(1.0) / $pt;                    \
+     vec2 frac  = fract(pos * size + vec2(0.5));     \
+     vec2 frac2 = frac * frac;                       \
+     vec2 inv   = vec2(1.0) - frac;                  \
+@@ -380,7 +380,7 @@ bool pl_shader_sample_hermite(pl_shader sh, const struct pl_sample_src *src)
+     vec4 color;                                          \
+     {                                                    \
+     vec2 pos  = $pos;                                    \
+-    vec2 size = vec2(textureSize($tex, 0));              \
++    vec2 size = vec2(1.0) / $pt;                         \
+     vec2 frac = fract(pos * size + vec2(0.5));           \
+     pos += $pt * (smoothstep(0.0, 1.0, frac) - frac);    \
+     color = ${float:scale} * textureLod($tex, pos, 0.0); \
+@@ -406,7 +406,7 @@ bool pl_shader_sample_gaussian(pl_shader sh, const struct pl_sample_src *src)
+     vec4 color;                                     \
+     {                                               \
+     vec2 pos  = $pos;                               \
+-    vec2 size = vec2(textureSize($tex, 0));         \
++    vec2 size = vec2(1.0) / $pt;                    \
+     vec2 off  = -fract(pos * size + vec2(0.5));     \
+     vec2 off2 = -2.0 * off * off;                   \
+     /* compute gaussian weights */                  \
+@@ -447,7 +447,7 @@ bool pl_shader_sample_oversample(pl_shader sh, const struct pl_sample_src *src,
+     vec4 color;                                          \
+     {                                                    \
+     vec2 pos = $pos;                                     \
+-    vec2 size = vec2(textureSize($tex, 0));              \
++    vec2 size = vec2(1.0) / $pt;                         \
+     /* Round the position to the nearest pixel */        \
+     vec2 fcoord = fract(pos * size - vec2(0.5));         \
+     float rx = ${dynamic float:rx};                      \
+@@ -635,7 +635,7 @@ bool pl_shader_sample_polar(pl_shader sh, const struct pl_sample_src *src,
+          "vec4 color = vec4(0.0);                       \n"
+          "{                                             \n"
+          "vec2 pos = "$", pt = "$";                     \n"
+-         "vec2 size = vec2(textureSize("$", 0));        \n"
++         "vec2 size = vec2(1.0) / pt;                   \n"
+          "vec2 fcoord = fract(pos * size - vec2(0.5));  \n"
+          "vec2 base = pos - pt * fcoord;                \n"
+          "vec2 center = base + pt * vec2(0.5);          \n"
+@@ -643,7 +643,7 @@ bool pl_shader_sample_polar(pl_shader sh, const struct pl_sample_src *src,
+          "float w, d, wsum = 0.0;                       \n"
+          "int idx;                                      \n"
+          "vec4 c;                                       \n",
+-         pos, pt, src_tex);
++         pos, pt);
+ 
+     bool use_ar = cfg.antiring > 0;
+     if (use_ar) {
+@@ -1066,7 +1066,7 @@ bool pl_shader_sample_ortho2(pl_shader sh, const struct pl_sample_src *src,
+     vec4 color = vec4(0.0, 0.0, 0.0, 1.0);                                      \
+     {                                                                           \
+     vec2 pos = $pos, pt = $pt;                                                  \
+-    vec2 size = vec2(textureSize($src_tex, 0));                                 \
++    vec2 size = vec2(1.0) / pt;                                                 \
+     vec2 dir = vec2(${const float:dir[pass][0]}, ${const float: dir[pass][1]}); \
+     pt *= dir;                                                                  \
+     vec2 fcoord2 = fract(pos * size - vec2(0.5));                               \
+@@ -1188,7 +1188,7 @@ void pl_shader_distort(pl_shader sh, pl_tex src_tex, int out_w, int out_h,
+     vec2 pos = $tf * $pos + $tf_c;                          \
+     vec2 pt = $pt;                                          \
+     @if (params->bicubic) {                                 \
+-        vec2 size = vec2(textureSize($tex, 0));             \
++        vec2 size = vec2(1.0) / pt;                         \
+         vec2 frac  = fract(pos * size + vec2(0.5));         \
+         vec2 frac2 = frac * frac;                           \
+         vec2 inv   = vec2(1.0) - frac;                      \
+diff --git a/src/tests/dummy.c b/src/tests/dummy.c
+index b32c954e..2de91008 100644
+--- a/src/tests/dummy.c
++++ b/src/tests/dummy.c
+@@ -1,5 +1,7 @@
+ #include "gpu_tests.h"
+ 
++#include <string.h>
++
+ #include <libplacebo/dummy.h>
+ #include <libplacebo/renderer.h>
+ 
+@@ -63,7 +65,31 @@ int main()
+     REQUIRE((res = pl_shader_finalize(sh)));
+     REQUIRE_CMP(res->input, ==, PL_SHADER_SIG_SAMPLER, "u");
+ 
++    // Rectangle samplers use unnormalized coordinates and do not accept a
++    // mipmap level argument to textureSize().
++    src.sampler = PL_SAMPLER_RECT;
++
++    pl_shader_reset(sh, pl_shader_params( .gpu = gpu ));
++    REQUIRE(pl_shader_sample_polar(sh, &src, &filter_params));
++    REQUIRE((res = pl_shader_finalize(sh)));
++    REQUIRE_CMP(res->input, ==, PL_SHADER_SIG_SAMPLER, "u");
++    REQUIRE(strstr(res->glsl, "sampler2DRect"));
++    REQUIRE(!strstr(res->glsl, "textureSize("));
++
++    pl_shader_obj ortho = NULL;
++    src.new_h = src.tex_h;
++    pl_shader_reset(sh, pl_shader_params( .gpu = gpu ));
++    REQUIRE(pl_shader_sample_ortho2(sh, &src, pl_sample_filter_params(
++        .filter = pl_filter_spline36,
++        .lut = &ortho,
++    )));
++    REQUIRE((res = pl_shader_finalize(sh)));
++    REQUIRE_CMP(res->input, ==, PL_SHADER_SIG_SAMPLER, "u");
++    REQUIRE(strstr(res->glsl, "sampler2DRect"));
++    REQUIRE(!strstr(res->glsl, "textureSize("));
++
+     pl_shader_free(&sh);
++    pl_shader_obj_destroy(&ortho);
+     pl_shader_obj_destroy(&lut);
+     pl_tex_destroy(gpu, &dummy);
+     pl_gpu_dummy_destroy(&gpu);
+-- 
+2.55.0
+
