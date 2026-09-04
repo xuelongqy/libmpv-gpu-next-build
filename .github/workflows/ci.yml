@@ -19,7 +19,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential ninja-build pipx pkg-config \
-            libavcodec-dev libavfilter-dev libavformat-dev libavutil-dev \
+            libavcodec-dev libavdevice-dev libavfilter-dev libavformat-dev \
+            libavutil-dev \
             libswresample-dev libswscale-dev libass-dev libdav1d-dev \
             libegl-dev libgl-dev \
             liblcms2-dev libunwind-dev libxxhash-dev
