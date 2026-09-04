@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+script_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 # shellcheck source=lib/common.sh
 source "$script_dir/lib/common.sh"
 
@@ -20,7 +20,8 @@ cleanup_merges() {
 trap cleanup_merges EXIT
 
 check_merge() {
-    local name=$1 repository=$2 upstream=$3 commit=$4 destination=$5
+    local name=$1 repository=$2 upstream=$3 upstream_branch=$4 commit=$5
+    local destination=$6
     if [[ ! -d "$destination/.git" ]]; then
         mkdir -p "$(dirname -- "$destination")"
         git clone --filter=blob:none "$repository" "$destination"
@@ -32,22 +33,36 @@ check_merge() {
         git -C "$destination" remote add upstream "$upstream"
     fi
     git -C "$destination" fetch --prune origin
-    git -C "$destination" fetch --prune upstream master
+    git -C "$destination" fetch --prune upstream "$upstream_branch"
     git -C "$destination" merge --abort >/dev/null 2>&1 || true
     git -C "$destination" checkout --detach --force "$commit"
 
-    if ! git -C "$destination" merge --no-commit --no-ff upstream/master; then
+    local upstream_commit
+    upstream_commit=$(git -C "$destination" rev-parse \
+        "upstream/$upstream_branch")
+    printf 'compat: %s pinned=%s upstream=%s\n' \
+        "$name" "$commit" "$upstream_commit"
+
+    if ! git -C "$destination" merge --no-commit --no-ff \
+        "upstream/$upstream_branch"; then
+        printf 'compat: %s merge=conflict\n' "$name" >&2
+        git -C "$destination" diff --name-only --diff-filter=U >&2 || true
         git -C "$destination" merge --abort || true
-        echo "$name conflicts with current upstream master" >&2
         return 1
     fi
-    echo "$name can merge current upstream master"
+    printf 'compat: %s merge=passed\n' "$name"
 }
 
-check_merge mpv "$MPV_REPOSITORY" "$MPV_UPSTREAM" "$MPV_COMMIT" \
-    "$compat_root/mpv"
+compat_mode=merge-only
+[[ "$build_merged" == true ]] && compat_mode=merge-and-build
+printf 'compat: mode=%s\n' "$compat_mode"
+merge_status=0
+check_merge mpv "$MPV_REPOSITORY" "$MPV_UPSTREAM" "$MPV_UPSTREAM_BRANCH" \
+    "$MPV_COMMIT" "$compat_root/mpv" || merge_status=1
 check_merge libplacebo "$LIBPLACEBO_REPOSITORY" "$LIBPLACEBO_UPSTREAM" \
-    "$LIBPLACEBO_COMMIT" "$compat_root/libplacebo"
+    "$LIBPLACEBO_UPSTREAM_BRANCH" "$LIBPLACEBO_COMMIT" \
+    "$compat_root/libplacebo" || merge_status=1
+[[ "$merge_status" -eq 0 ]] || exit 1
 
 if [[ "$build_merged" == true ]]; then
     [[ $(uname -s) == Linux ]] || {
@@ -79,6 +94,7 @@ if [[ "$build_merged" == true ]]; then
     meson compile -C "$placebo_build" -j "$jobs"
     meson test -C "$placebo_build" --print-errorlogs
     meson install -C "$placebo_build"
+    echo 'compat: libplacebo build-tests=passed'
 
     export PKG_CONFIG_PATH="$prefix/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
     export LD_LIBRARY_PATH="$prefix/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
@@ -88,5 +104,7 @@ if [[ "$build_merged" == true ]]; then
         -Dgl=enabled -Dplain-gl=enabled -Dvulkan=disabled
     meson compile -C "$mpv_build" -j "$jobs"
     meson test -C "$mpv_build" --print-errorlogs
-    echo "Merged upstream compatibility build passed"
+    echo 'compat: mpv build-tests=passed'
+else
+    echo 'compat: merged-build=skipped'
 fi

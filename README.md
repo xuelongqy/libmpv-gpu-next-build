@@ -28,6 +28,8 @@ silently replace the pinned source.
 ./scripts/build-android.sh     # Android arm64, NDK r29
 ./scripts/check-upstream.sh    # non-mutating compatibility merge in .work
 ./scripts/check-upstream.sh --build  # also build/test merged trees on Linux
+./scripts/release-check.sh            # local maintenance invariants
+./scripts/release-check.sh --remote --tag gpu-next-v1.0.0
 ```
 
 To run the macOS smoke client with a local video:
@@ -54,7 +56,8 @@ ignored under `results/`.
 The Android patch supports only the Render API path. It deliberately excludes
 the experimental `wid` HDR reconfiguration workaround. See `PATCHES.md` for
 API behavior and platform boundaries, and `VALIDATION.md` for the recorded
-build and device matrix.
+build and device matrix. The merge-only synchronization and release procedure
+is defined in `MAINTENANCE.md`.
 
 ## Source-only releases
 

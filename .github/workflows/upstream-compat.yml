@@ -12,7 +12,7 @@ jobs:
   merge-check:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Install dependencies
         run: |
           sudo apt-get update
@@ -24,4 +24,33 @@ jobs:
           pipx install meson==1.12.0
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - name: Check maintained branches against upstream master
-        run: ./scripts/check-upstream.sh --build
+        id: compatibility
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          ./scripts/check-upstream.sh --build 2>&1 | tee upstream-compat.log
+      - name: Write compatibility summary
+        if: always()
+        env:
+          CHECK_OUTCOME: ${{ steps.compatibility.outcome }}
+        run: |
+          {
+            echo '## Upstream compatibility'
+            echo
+            echo "Result: \`$CHECK_OUTCOME\`"
+            echo
+            echo '```text'
+            if [[ -f upstream-compat.log ]]; then
+              if [[ "$CHECK_OUTCOME" == success ]]; then
+                awk '/^compat:/' upstream-compat.log
+              else
+                tail -n 80 upstream-compat.log
+              fi
+            else
+              echo 'compatibility command did not produce a log'
+            fi
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Fail incompatible source combinations
+        if: steps.compatibility.outcome != 'success'
+        run: exit 1
