@@ -18,11 +18,13 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential meson ninja-build pkg-config \
+          sudo apt-get install -y build-essential ninja-build pipx pkg-config \
             libavcodec-dev libavfilter-dev libavformat-dev libavutil-dev \
             libswresample-dev libswscale-dev libass-dev libdav1d-dev \
             libegl-dev libgl-dev \
             liblcms2-dev libunwind-dev libxxhash-dev
+          pipx install meson==1.12.0
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - name: Build and test OpenGL
         run: ./scripts/build-linux.sh
       - name: Build and test without OpenGL
@@ -33,8 +35,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install dependencies
-        run: brew install meson ninja pkgconf ffmpeg libass little-cms2 sdl2 \
-          molten-vk vulkan-headers vulkan-loader
+        run: |
+          brew install meson ninja pkgconf ffmpeg libass little-cms2 sdl2 \
+            molten-vk vulkan-headers vulkan-loader
       - name: Build and test
         run: ./scripts/build-macos.sh
 
@@ -50,6 +53,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y autoconf automake curl gperf libtool \
-            meson ninja-build pkg-config unzip wget
+            ninja-build pipx pkg-config unzip wget
+          pipx install meson==1.12.0
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - name: Cross-compile Android arm64
         run: ./scripts/build-android.sh

@@ -24,6 +24,7 @@ if pkg-config --exists dav1d; then
 fi
 setup_meson "$source_root/libplacebo" "$build" \
     --prefix "$prefix_root" \
+    --libdir lib \
     -Ddefault_library=shared \
     -Dopengl=enabled \
     -Dvulkan="$libplacebo_vulkan" \

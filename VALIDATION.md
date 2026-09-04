@@ -15,6 +15,8 @@ On an Apple M2 Max macOS host:
 - pinned mpv OpenGL build and complete Meson tests: 35 passed, 3 skipped;
 - no-OpenGL libmpv build and suite: 25 passed, 3 skipped;
 - ASan/UBSan libmpv build and suite: 25 passed, 3 skipped;
+- Android arm64 libmpv and debug/release smoke APK assembly completed with
+  NDK r29; a temporary Maven mirror was used for local dependency resolution;
 - the desktop smoke client linked to the private pinned libplacebo prefix;
 - both maintained commits merged cleanly with the official upstream `master`
   revisions checked on this date.
