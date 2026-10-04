@@ -33,13 +33,15 @@ with tempfile.TemporaryDirectory(prefix="vulkan-tools-") as directory:
                  env=stable_env)
     assert stable.returncode == 0 and stable.stdout == "c30a27722bc983671e8a11ddacc9480dde29681a"
     valid = (here/"versions.env").read_text()
+    locked_mpv = next(line.split("=", 1)[1] for line in valid.splitlines()
+                      if line.startswith("MPV_COMMIT="))
     for text in (valid.replace("MPV_COMMIT=", "MISSING="),
-                 valid.replace("b91f8e58e51e75f68232b720352fdcfd6929e1b3", "bad"),
+                 valid.replace(locked_mpv, "bad"),
                  valid.replace("MPV_REPOSITORY=https://github.com/xuelongqy/mpv.git", "MPV_REPOSITORY=")):
         lock = temp/"invalid.env"
         lock.write_text(text)
         check = shell(f'source "{here}/common.sh"', {"SOURCE_LOCK_FILE": str(lock),
-                      "MPV_COMMIT": "b91f8e58e51e75f68232b720352fdcfd6929e1b3"})
+                      "MPV_COMMIT": locked_mpv})
         assert check.returncode != 0
     missing = shell(f'source "{here}/common.sh"', {"SOURCE_LOCK_FILE": str(temp/"absent.env")})
     assert missing.returncode != 0
@@ -97,6 +99,45 @@ with tempfile.TemporaryDirectory(prefix="vulkan-tools-") as directory:
     assert run([sys.executable, str(here/"case.py"), str(temp/"pass"), "5", "--",
                 sys.executable, "-c", "raise SystemExit(0)"]).returncode != 0
     assert (temp/"pass.json").read_bytes() == before
+
+    # Run the real Linux entrypoint with only its GPU/media commands replaced.
+    fixture = temp/"linux"
+    scripts = fixture/"experiments"/"vulkan"
+    scripts.mkdir(parents=True)
+    (fixture/"scripts"/"lib").mkdir(parents=True)
+    shutil.copy2(repo/"scripts"/"lib"/"common.sh", fixture/"scripts"/"lib"/"common.sh")
+    for name in ("common.sh", "versions.env", "check-linux.sh", "case.py", "process_usage.py"):
+        shutil.copy2(here/name, scripts/name)
+    (scripts/"run.sh").write_text(
+        'printf "VALIDATION_ERRORS=%s\\nRESULT=PASS\\n" "${ERRORS:-0}"\n'
+        'exit "${SMOKE_EXIT:-0}"\n')
+    (scripts/"compare-sdr.py").write_text(
+        'import os; raise SystemExit(int(os.environ.get("PIXEL_EXIT", "0")))\n')
+    commands = fixture/"commands"
+    commands.mkdir()
+    for name, text in (("uname", "#!/bin/sh\necho Linux\n"),
+                       ("ffmpeg", "#!/bin/sh\nexit 0\n")):
+        tool = commands/name
+        tool.write_text(text)
+        tool.chmod(0o755)
+    for name, settings, expected in (
+            ("pass", {}, 0), ("fail", {"SMOKE_EXIT": "1"}, 1),
+            ("unsupported", {"SMOKE_EXIT": "77"}, 77),
+            ("timeout", {"SMOKE_EXIT": "124"}, 124),
+            ("validation", {"ERRORS": "1"}, 1), ("pixels", {"PIXEL_EXIT": "1"}, 1)):
+        env = {**os.environ, "PATH": str(commands)+os.pathsep+os.environ["PATH"],
+               "WORK_ROOT": str(fixture/name), "SOURCE_LOCK_FILE": str(scripts/"versions.env"),
+               "GITHUB_STEP_SUMMARY": str(fixture/(name+".md")), **settings}
+        check = subprocess.run([shutil.which("bash"), str(scripts/"check-linux.sh")],
+                               capture_output=True, text=True, encoding="utf-8", timeout=60, env=env)
+        assert check.returncode == expected, (name, check)
+        summary = (fixture/(name+".md")).read_text()
+        assert ("Final stage: complete; exit code: 0" in summary) == (expected == 0)
+        if expected == 0:
+            records = list((fixture/name/"evidence").glob("*/*.json"))
+            assert len(records) == 51 and all(json.loads(p.read_text())["exit_code"] == 0
+                                             for p in records)
+    print("LINUX_ENTRYPOINT=PASS (6 offline cases, no GPU execution)")
 
     argv_script = temp/"argv.sh"
     argv_script.write_text("printf '%s\\n' \"$@\"\n")

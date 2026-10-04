@@ -8,6 +8,7 @@ case $(uname -s) in
         # Loader, ICD and validation-layer settings belong to the caller.
         ;;
     MINGW*|MSYS*) export PATH="$prefix_root/bin:$PATH" ;;
+    Linux) export LD_LIBRARY_PATH="$prefix_root/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" ;;
     *) echo "unsupported host" >&2; exit 2 ;;
 esac
 exec "$work_root/bin/smoke" "$@"

@@ -3,7 +3,10 @@ set -euo pipefail
 # shellcheck source=common.sh
 source "$(dirname -- "$0")/common.sh"
 export PATH="$prefix_root/bin:$PATH"
-export DYLD_LIBRARY_PATH="$prefix_root/lib${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}"
+case $(uname -s) in
+    Darwin) export DYLD_LIBRARY_PATH="$prefix_root/lib${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}" ;;
+    Linux) export LD_LIBRARY_PATH="$prefix_root/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" ;;
+esac
 result=$(mktemp -d "$work_root/evidence/tests.XXXXXX")
 failed=0
 for library in libplacebo mpv; do

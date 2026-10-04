@@ -1,22 +1,32 @@
 # Experimental Vulkan delivery
 
 This is an opt-in, source-only desktop experiment. It does not replace the
-OpenGL/GLES source combination in the root `versions.env`, install a stable
-Vulkan header, or change the client API version. There are no binary releases
-or new CI claims.
+OpenGL/GLES source combination in the root `versions.env`. There are no binary
+releases or claims of a stable Vulkan ABI.
+
+The locked API-packaging snapshot uses downstream client API 2.7 and installs
+`render_vk.h`, even when the library is built without Vulkan. This is not an
+upstream API release. The experiment lock names the committed 2.7 snapshot.
+The build/client/CI reject older snapshots rather than silently testing them as
+the new candidate. Local validation and remote CI are recorded separately.
 
 ## Source and interface identity
 
-- mpv: `b91f8e58e51e75f68232b720352fdcfd6929e1b3`
+- mpv: `690af652e5537502b7cd6d1b0519012d3040cc5e`
 - libplacebo: `5101de2b9354789a019d1933bc45e43b0ee65059`
-- Header: the pinned mpv checkout's `include/mpv/render_vk.h`.
-  Draft version is 1; client API 2.6 does **not** identify draft revisions.
-  Always use the header and library from the same experiment. Never copy this
-  header into a system SDK as if its ABI were stable.
+- Header: the candidate installation's `include/mpv/render_vk.h`, not a copied
+  header or a source-tree include fallback. Draft version remains 1.
+  Check `mpv_client_api_version() >= MPV_MAKE_VERSION(2, 7)` before Vulkan use,
+  then check context creation for actual backend availability. A version number
+  alone does not guarantee Vulkan support or identify draft revisions.
+  Use the header and library from the same experiment. Incompatible structure
+  or semantic changes must bump the draft version; mismatches are rejected.
+  Including this header requires Vulkan SDK headers even if the library itself
+  was built without Vulkan; other Render API headers do not gain that dependency.
 
-The locked commits were published to the configured forks during the 2026-09-28
-sync. Checkout still verifies the exact full SHA and refuses dirty dependency
-trees; do not silently fall back to another revision.
+The locked commits are published to the configured forks; mpv's packaging
+snapshot follows the 2026-09-28 sync. Checkout verifies the exact full SHA and
+refuses dirty dependency trees; do not silently fall back to another revision.
 
 ## Build prerequisites
 
@@ -30,7 +40,12 @@ compatible Khronos validation layer. The display probe uses recent Windows
 Advanced Color declarations; keep the already validated SDK/header environment.
 No script installs or upgrades packages, driver, loader, layer or SDK.
 
-Both hosts require Python 3.11+; pixel comparisons also require NumPy, Pillow
+Linux: the same development dependencies, an OpenGL development environment,
+Vulkan loader and validation layers. The software-device CI additionally uses
+Mesa Lavapipe, Xvfb and a generated SDR fixture; it does not validate a physical
+GPU, native HDR display or hardware decoding.
+
+All hosts require Python 3.11+; pixel comparisons also require NumPy, Pillow
 and ffmpeg. Record installed dependency versions; source locks do not promise
 bit-identical binaries across different toolchain installations.
 
@@ -53,6 +68,12 @@ before launching. On macOS this can include `VK_DRIVER_FILES`, `VK_LAYER_PATH`,
 `SDL_VULKAN_LIBRARY` and validation-layer libraries in `DYLD_LIBRARY_PATH`.
 On Windows the corresponding SDK binaries must be on PATH. No repository path,
 monitor name, audio UID or SDK install path is baked into the scripts.
+Linux uses the candidate prefix in `LD_LIBRARY_PATH`. Its separate
+`vulkan-experimental.yml` workflow leaves the stable OpenGL workflow untouched.
+`check-linux.sh` uses the existing case runner for probes, binary/timeline
+readback, GPU screenshots and target retirement/lifecycle. Unsupported, timeout,
+pixel mismatch and validation errors fail these required software-device checks;
+neither binaries nor generated media are uploaded.
 
 The smoke requires validation; absence is a setup failure, not a validation pass.
 Build does not run tests implicitly. `tests.sh` retains all library test failures

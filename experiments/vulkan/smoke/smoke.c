@@ -17,6 +17,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+#if MPV_CLIENT_API_VERSION < MPV_MAKE_VERSION(2, 7)
+#error "The Vulkan client requires matching downstream client API 2.7 headers"
+#endif
+
 #define CHECK(x) do { if (!(x)) { fprintf(stderr, "FAIL %s:%d: %s\n", __FILE__, __LINE__, #x); exit(1); } } while (0)
 #define VK(x) do { VkResult r_ = (x); if (r_ != VK_SUCCESS) { fprintf(stderr, "%s: VkResult %d\n", #x, r_); exit(1); } } while (0)
 
@@ -1107,6 +1111,9 @@ static void target_probes(struct app *a)
     }
     mpv_vulkan_retire_target r = {.version = MPV_VULKAN_DRAFT_VERSION,
         .image = a->targets[0].image, .generation = a->targets[0].generation};
+    r.version++;
+    CHECK(mpv_render_context_set_parameter(a->render,(mpv_render_param){MPV_RENDER_PARAM_VULKAN_RETIRE_TARGET,&r}) == MPV_ERROR_INVALID_PARAMETER);
+    r.version = MPV_VULKAN_DRAFT_VERSION;
     CHECK(mpv_render_context_set_parameter(a->render,(mpv_render_param){MPV_RENDER_PARAM_VULKAN_RETIRE_TARGET,&r}) == 0);
     CHECK(mpv_render_context_set_parameter(a->render,(mpv_render_param){MPV_RENDER_PARAM_VULKAN_RETIRE_TARGET,&r}) == MPV_ERROR_INVALID_PARAMETER);
     a->targets[0].state = MPV_VULKAN_TARGET_UNTOUCHED;
@@ -1140,6 +1147,14 @@ static void fault_probe(struct app *a)
 
 int main(int argc, char **argv)
 {
+    unsigned long api = mpv_client_api_version();
+    fprintf(stderr, "CLIENT_API=%lu.%lu VULKAN_DRAFT=%d\n", api >> 16,
+            api & 0xffff, MPV_VULKAN_DRAFT_VERSION);
+    if (api < MPV_MAKE_VERSION(2, 7)) {
+        fprintf(stderr, "downstream client API 2.7 or newer required\n");
+        return 2;
+    }
+
     struct app a = {.start = "2", .width = 960, .height = 540,
         .display = -1, .hwdec = "no", .audio_device = "auto"};
     bool window = false, stress = false, probes = false, fault = false;

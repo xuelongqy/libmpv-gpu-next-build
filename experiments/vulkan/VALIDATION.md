@@ -1,19 +1,91 @@
 # Delivery validation
 
-Status: the current Vulkan source lock was revalidated on macOS after the
-2026-09-28 upstream sync. Windows has not yet been rerun against this new lock;
+Status: the downstream client API 2.7 packaging snapshot was checked locally
+on macOS on 2026-10-04 and is now locked to the commit recorded below.
+The previous Vulkan source lock was revalidated on macOS after the
+2026-09-28 upstream sync. Windows has not yet been rerun against the new lock;
 the Windows results below are retained evidence for the previous validated lock.
 This is not an all-tests-pass result, stable release/tag, or remote CI result.
 
 Worktree base: `1245b72645002e9e284b42fcdd5588d06abc321e`, branch
 `feat/vulkan-experimental-delivery`. This branch contains the experimental
 delivery, separate from the stable maintained line. Production sources are
-exactly the two commits in this directory's `versions.env`.
+the two commits in this directory's `versions.env`.
 
 Resolution qualification: the earlier desktop matrices and voiced runs below
 used a 960x540 render target unless explicitly noted. A 4K display mode and a
 4K decoded source did not make those native-4K rendering tests. The Windows
 native-4K follow-up is recorded separately below.
+
+## 2026-10-04 downstream API-packaging candidate
+
+mpv: `690af652e5537502b7cd6d1b0519012d3040cc5e`, containing the six-file
+packaging/version/test diff against base
+`b91f8e58e51e75f68232b720352fdcfd6929e1b3` (SHA-256
+`204bb9eae3fa126705ec85475115709a707e6841a9850b4388cf21aee79b01a6`).
+libplacebo remains `5101de2b9354789a019d1933bc45e43b0ee65059`, unchanged.
+Client API is downstream experimental 2.7; Vulkan draft version, structures,
+enum values and renderer/synchronization implementation are unchanged.
+
+The fresh private prefix contains libplacebo, libmpv, standalone and the client.
+The client compiled against installed headers only. Installed `render_vk.h`
+matches the source header; it is also installed in all three disabled-backend
+configurations and can be included with the Vulkan SDK headers. Runtime dyld
+records confirm the candidate libmpv and libplacebo paths, not just search-path
+settings. The device was Apple M2 Max through MoltenVK, with synchronization
+validation enabled.
+
+| Check | Result |
+| --- | --- |
+| Full mpv tests / separate libmpv suite | 36 / 25 pass, 0 fail, 3 locale skips each |
+| libplacebo tests with the explicit runtime environment | 15 pass, 0 fail, 1 OpenGL-surfaceless skip |
+| Vulkan-disabled, GL-disabled, both-disabled builds | All build/install; each libmpv suite 25 pass, 0 fail, 3 skips |
+| Init/target/retire draft mismatch, selector, skip probes | Pass; mismatches rejected, zero validation errors |
+| Injected submission failure / 50 context cycles / GL-disabled probe | Pass; zero validation errors |
+| SDR timeline / binary offscreen / window target and GPU screenshot | 3/3 pass, 0-code pixel difference, zero validation errors |
+| SDR lifecycle | 100 resize/retire, 20 loads, 20 seek/skip/screenshot cycles; 20/20 pixel pairs pass, zero validation errors |
+| DV at PTS 600 to PQ / scRGB versus saved 2026-09-28 target | 0 ten-bit codes / 0 FP16 ULP; zero validation errors |
+| Default OpenGL / explicit gpu / OpenGL gpu-next | 3/3 render passes; default versus gpu within one code |
+| Old 2.6 installed header / old 2.6 runtime | Compile rejection / exit 2 before Vulkan initialization, as intended |
+| Offline tools, including Linux entrypoint | Pass; 6 new offline success/failure/unsupported/timeout/validation/pixel cases |
+| Shell syntax, ShellCheck, Python compilation, workflow YAML, diff checks | Pass |
+
+The original Cocoa+Swift Vulkan-disabled configuration failed in unchanged
+`video/out/mac/view.swift` because `MetalLayer` was unavailable. Disabling Cocoa
+and Swift without disabling dependent native inputs then failed the dynamic
+load test with missing `cfstr_from_cstr`. The successful compatibility builds
+use the existing headless configuration: Cocoa, Swift, CoreAudio and AVFoundation
+disabled. These results do not declare Cocoa/Swift Vulkan-disabled builds fixed.
+Both initial logs are retained; no production fix was added for these paths.
+
+The initial libplacebo test run had two skips without the explicit Vulkan
+runtime setup. The recorded rerun includes the Vulkan test, leaving one skip.
+A first fault run used the system Python launcher, which dropped validation
+library discovery; it failed before rendering. A comparison attempt also found
+missing Python image dependencies. The successful reruns use an isolated Python
+environment with NumPy/Pillow and the intended Vulkan runtime. These preparation
+failures remain recorded, not overwritten or counted as passes.
+
+Private evidence is under `.work/vulkan-api-2.7.PiIBNa/`: build and test logs at
+its root; `results/` contains per-case commands, media hashes, exit statuses,
+runtime library identities, raw targets, screenshots and comparison logs.
+Candidate binary/header SHA-256 values:
+
+```text
+smoke        4f32cdb9e9e0753b1f0495e18e4d161b127bfbb9dacd15bdd68f045b5b26fbaa
+libmpv       ebc617b93e687a3ccbb877b2d1b133317bd61fea5c8084d641a345df7944ba28
+libplacebo   e13611a6ce5f626542735f9e406c78a115f86cec6fa088afcb508b5507f92092
+render_vk.h  b531695ac148bd84cf9618e288a43d9c9293a5ad5c6fe7d62c098ffcd1d4c2ef
+```
+
+The Linux Lavapipe workflow and existing-script Linux branches are prepared;
+remote execution is not part of these local macOS results. See the experimental
+software Vulkan workflow for its current status. The source lock now names the
+2.7 packaging snapshot; older 2.6 libraries remain deliberately rejected by the
+client. No Windows regression, physical Linux GPU or Android real-device
+verification was performed. The macOS PQ/scRGB display-brightness mismatch
+remains unresolved. Stable locks, the original maintenance diff, libplacebo HEAD
+and tags remain unchanged. All test windows/processes exited.
 
 ## 2026-09-28 upstream-sync revalidation
 

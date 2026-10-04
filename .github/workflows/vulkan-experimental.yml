@@ -1,0 +1,48 @@
+name: experimental software Vulkan
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [feat/vulkan-experimental-delivery]
+  pull_request:
+    branches: [feat/vulkan-experimental-delivery]
+
+permissions:
+  contents: read
+
+jobs:
+  linux-software:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      LIBGL_ALWAYS_SOFTWARE: '1'
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install build and software-device dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential ninja-build pipx python3-venv pkg-config shellcheck \
+            libavcodec-dev libavdevice-dev libavfilter-dev libavformat-dev libavutil-dev \
+            libswresample-dev libswscale-dev libass-dev libdav1d-dev liblcms2-dev \
+            libegl-dev libgl-dev libshaderc-dev libsdl2-dev libvulkan-dev \
+            mesa-vulkan-drivers vulkan-validationlayers vulkan-tools ffmpeg xvfb xauth
+          pipx install meson==1.12.0
+          python3 -m venv .work/python
+          .work/python/bin/pip install numpy pillow
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          echo "$PWD/.work/python/bin" >> "$GITHUB_PATH"
+          icd=$(find /usr/share/vulkan/icd.d -name 'lvp_icd*.json' -print -quit)
+          test -n "$icd"
+          echo "VK_DRIVER_FILES=$icd" >> "$GITHUB_ENV"
+      - name: Check tools and build the locked candidate
+        run: |
+          bash -n experiments/vulkan/*.sh
+          shellcheck -x -P SCRIPTDIR experiments/vulkan/*.sh
+          python3 experiments/vulkan/test-tools.py
+          bash experiments/vulkan/build.sh
+      - name: Run library tests
+        run: bash experiments/vulkan/tests.sh
+      - name: Run Lavapipe readback and lifecycle checks
+        run: |
+          vulkaninfo --summary
+          xvfb-run -a bash experiments/vulkan/check-linux.sh

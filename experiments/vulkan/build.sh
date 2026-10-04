@@ -5,8 +5,9 @@ source "$(dirname -- "$0")/common.sh"
 for tool in git meson ninja pkg-config cc; do require_command "$tool"; done
 case $(uname -s) in
     Darwin) platform=macos ;;
+    Linux) platform=linux ;;
     MINGW*|MSYS*) [[ ${MSYSTEM:-} == UCRT64 ]] || { echo "UCRT64 required" >&2; exit 2; }; platform=windows ;;
-    *) echo "supported build hosts: macOS, Windows UCRT64" >&2; exit 2 ;;
+    *) echo "supported build hosts: macOS, Linux, Windows UCRT64" >&2; exit 2 ;;
 esac
 pkg-config --exists shaderc sdl2 vulkan libass libavcodec libavformat libavutil || {
     echo "missing development dependencies; see README (no automatic installation)" >&2; exit 2;
@@ -39,32 +40,39 @@ setup_meson "$source_root/libplacebo" "$pl_build" --prefix "$meson_prefix" --lib
 meson compile -C "$pl_build" -j "$jobs"
 meson install -C "$pl_build"
 mpv_args=()
-native=("$experiment_dir/smoke/windows.c")
+native=()
 link=()
 if [[ $platform == macos ]]; then
     mpv_args+=(-Dvideotoolbox-gl=enabled -Dcocoa=enabled -Dswift-build=enabled -Dmacos-cocoa-cb=disabled)
     native=("$experiment_dir/smoke/macos.m")
     link+=(-framework Cocoa -framework QuartzCore -framework Metal)
+elif [[ $platform == windows ]]; then
+    native=("$experiment_dir/smoke/windows.c")
 fi
 setup_meson "$source_root/mpv" "$work_root/build-mpv" --prefix "$meson_prefix" --libdir lib \
     --buildtype debugoptimized -Ddefault_library=shared -Dlibmpv=true -Dcplayer=true \
     -Dtests=true -Dgl=enabled -Dplain-gl=enabled -Dvulkan=enabled "${mpv_args[@]}"
 meson compile -C "$work_root/build-mpv" -j "$jobs"
 meson install -C "$work_root/build-mpv"
-test -f "$source_root/mpv/include/mpv/render_vk.h"
+test -f "$prefix_root/include/mpv/render_vk.h"
 library="$prefix_root/lib/libmpv.2.dylib"
 if [[ $platform == windows ]]; then library="$prefix_root/lib/libmpv.dll.a"; fi
+if [[ $platform == linux ]]; then library="$prefix_root/lib/libmpv.so"; fi
 test -f "$library"
 for source in smoke test-hdr-input; do
     # Link the exact candidate, not an unrelated mpv found through SDL's -L.
     # shellcheck disable=SC2046
     cc -std=c11 -Wall -Wextra -Werror -O1 -g "$experiment_dir/smoke/$source.c" \
-        "${native[@]}" -I"$source_root/mpv/include" "$library" \
+        "${native[@]}" -I"$prefix_root/include" "$library" \
         $(pkg-config --cflags --libs sdl2 vulkan) "${link[@]}" -pthread -lm \
         -o "$work_root/bin/$source"
 done
 if [[ $platform == macos ]]; then
     otool -L "$prefix_root/lib/libmpv.2.dylib" | tee "$work_root/evidence/linkage.txt"
+    grep -F "$prefix_root/lib/libplacebo" "$work_root/evidence/linkage.txt"
+elif [[ $platform == linux ]]; then
+    LD_LIBRARY_PATH="$prefix_root/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+        ldd "$library" | tee "$work_root/evidence/linkage.txt"
     grep -F "$prefix_root/lib/libplacebo" "$work_root/evidence/linkage.txt"
 else
     objdump -p "$prefix_root/bin/libmpv-2.dll" > "$work_root/evidence/linkage.txt"
