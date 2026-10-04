@@ -48,6 +48,9 @@ if [[ $platform == macos ]]; then
     link+=(-framework Cocoa -framework QuartzCore -framework Metal)
 elif [[ $platform == windows ]]; then
     native=("$experiment_dir/smoke/windows.c")
+elif [[ $platform == linux ]]; then
+    # Resolve the private libmpv's transitive dependencies at link time.
+    link+=("-Wl,-rpath-link,$prefix_root/lib")
 fi
 setup_meson "$source_root/mpv" "$work_root/build-mpv" --prefix "$meson_prefix" --libdir lib \
     --buildtype debugoptimized -Ddefault_library=shared -Dlibmpv=true -Dcplayer=true \
