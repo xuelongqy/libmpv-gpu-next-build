@@ -5,7 +5,8 @@ on macOS on 2026-10-04 and is now locked to the commit recorded below.
 The previous Vulkan source lock was revalidated on macOS after the
 2026-09-28 upstream sync. Windows has not yet been rerun against the new lock;
 the Windows results below are retained evidence for the previous validated lock.
-This is not an all-tests-pass result, stable release/tag, or remote CI result.
+Linux software-device CI now passes as recorded below; this is not a stable
+release/tag or acceptance of all platforms and historical tests.
 
 Worktree base: `1245b72645002e9e284b42fcdd5588d06abc321e`, branch
 `feat/vulkan-experimental-delivery`. This branch contains the experimental
@@ -16,6 +17,20 @@ Resolution qualification: the earlier desktop matrices and voiced runs below
 used a 960x540 render target unless explicitly noted. A 4K display mode and a
 4K decoded source did not make those native-4K rendering tests. The Windows
 native-4K follow-up is recorded separately below.
+
+## 2026-10-04 Linux software Vulkan CI
+
+[Run 37212455802](https://github.com/xuelongqy/libmpv-gpu-next-build/actions/runs/37212455802)
+passed at delivery commit `a5ced7fbf8c340123b3fb8553397ad667a007564` in 2m36s,
+using the unchanged source lock below. Ubuntu 24.04 used Mesa Lavapipe 25.2.8
+and pinned validation layer 1.4.313.
+
+- Build, library tests and offline tools: pass.
+- 8 render/probe/lifecycle cases and 43 pixel comparisons: 51/51 pass;
+  all render cases reported zero validation errors.
+
+Production code and pixel thresholds are unchanged. Coverage is software Vulkan
+SDR, not a physical Linux GPU, HDR display or hardware decoder.
 
 ## 2026-10-04 downstream API-packaging candidate
 
@@ -78,10 +93,9 @@ libplacebo   e13611a6ce5f626542735f9e406c78a115f86cec6fa088afcb508b5507f92092
 render_vk.h  b531695ac148bd84cf9618e288a43d9c9293a5ad5c6fe7d62c098ffcd1d4c2ef
 ```
 
-The Linux Lavapipe workflow and existing-script Linux branches are prepared;
-remote execution is not part of these local macOS results. See the experimental
-software Vulkan workflow for its current status. The source lock now names the
-2.7 packaging snapshot; older 2.6 libraries remain deliberately rejected by the
+These local macOS results are separate from the Linux CI results above.
+The source lock now names the 2.7 packaging snapshot; older 2.6 libraries remain
+deliberately rejected by the
 client. No Windows regression, physical Linux GPU or Android real-device
 verification was performed. The macOS PQ/scRGB display-brightness mismatch
 remains unresolved. Stable locks, the original maintenance diff, libplacebo HEAD
@@ -572,13 +586,13 @@ its earlier failures. Local provenance and result hashes live under
 
 ## Known limits
 
-- The Vulkan ABI is experimental, and the draft header is not installed.
+- The Vulkan ABI remains experimental. Installed `render_vk.h` draft 1 must
+  match the experimental library; downstream client API 2.7 is not ABI stability.
 - macOS PQ/scRGB physical brightness equivalence remains unresolved.
 - Windows reported an 8-bpc link during the previous TV validation; an RGB10
   application target does not prove a 10-bit wire format or Dolby Vision output.
-- Hardware paths are copy-back, not zero-copy interoperability.
-- No Android/native-Linux physical-GPU, complete Android Surface lifecycle,
+- Hardware paths are copy-back, not zero-copy interoperability. No
+  Android/native-Linux physical-GPU, complete Android Surface lifecycle,
   real device-loss or absolute luminance/latency calibration claim is made.
 - Known library base-test failures remain failures, separate from Render API
   integration checks. No ignored failure is relabeled pass.
-- No CI workflow is added or run by this local delivery.
