@@ -70,6 +70,10 @@ On Windows the corresponding SDK binaries must be on PATH. No repository path,
 monitor name, audio UID or SDK install path is baked into the scripts.
 Linux uses the candidate prefix in `LD_LIBRARY_PATH`. Its separate
 `vulkan-experimental.yml` workflow leaves the stable OpenGL workflow untouched.
+The workflow pins LunarG's Noble validation layer 1.4.313 (with a checked package
+SHA-256), retaining the system loader and Mesa driver. Noble's stock 1.3.275 layer
+lacks the [ALL_COMMANDS/layout-transition fix](https://github.com/KhronosGroup/Vulkan-ValidationLayers/pull/7480)
+and reports false synchronization hazards for semaphore-protected image readback.
 `check-linux.sh` uses the existing case runner for probes, binary/timeline
 readback, GPU screenshots and target retirement/lifecycle. Unsupported, timeout,
 pixel mismatch and validation errors fail these required software-device checks;
