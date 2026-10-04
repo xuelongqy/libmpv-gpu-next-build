@@ -4,6 +4,10 @@ This repository pins and validates the source combination used by the
 maintained libmpv `gpu-next` OpenGL/GLES fork. It publishes no prebuilt
 libraries. The mpv and libplacebo forks remain the source of truth.
 
+An opt-in [Vulkan desktop experiment](experiments/vulkan/README.md) has separate
+source locks and work directories. It does not replace this maintained
+OpenGL/GLES combination or promise a stable Vulkan ABI.
+
 ## Pinned sources
 
 Exact repository URLs and commits are recorded in `versions.env`:

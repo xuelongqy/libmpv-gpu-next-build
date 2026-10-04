@@ -12,3 +12,4 @@ results/
 *.mp4
 *.mov
 .DS_Store
+__pycache__/

@@ -3,7 +3,7 @@ set -euo pipefail
 
 repo_root=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)
 # shellcheck source=../../versions.env
-source "$repo_root/versions.env"
+source "${SOURCE_LOCK_FILE:-"$repo_root/versions.env"}"
 
 work_root=${WORK_ROOT:-"$repo_root/.work"}
 source_root="$work_root/src"
