@@ -109,10 +109,12 @@ with tempfile.TemporaryDirectory(prefix="vulkan-tools-") as directory:
     for name in ("common.sh", "versions.env", "check-linux.sh", "case.py", "process_usage.py"):
         shutil.copy2(here/name, scripts/name)
     (scripts/"run.sh").write_text(
-        'printf "VALIDATION_ERRORS=%s\\nRESULT=PASS\\n" "${ERRORS:-0}"\n'
+        'echo SMOKE_DIAGNOSTIC\n'
+        'if [[ ${OMIT_VALIDATION:-0} == 0 ]]; then printf "VALIDATION_ERRORS=%s\\n" "${ERRORS:-0}"; fi\n'
+        'if [[ ${OMIT_RESULT:-0} == 0 ]]; then echo RESULT=PASS; fi\n'
         'exit "${SMOKE_EXIT:-0}"\n')
     (scripts/"compare-sdr.py").write_text(
-        'import os; raise SystemExit(int(os.environ.get("PIXEL_EXIT", "0")))\n')
+        'import os; print("PIXEL_DIAGNOSTIC"); raise SystemExit(int(os.environ.get("PIXEL_EXIT", "0")))\n')
     commands = fixture/"commands"
     commands.mkdir()
     for name, text in (("uname", "#!/bin/sh\necho Linux\n"),
@@ -124,7 +126,9 @@ with tempfile.TemporaryDirectory(prefix="vulkan-tools-") as directory:
             ("pass", {}, 0), ("fail", {"SMOKE_EXIT": "1"}, 1),
             ("unsupported", {"SMOKE_EXIT": "77"}, 77),
             ("timeout", {"SMOKE_EXIT": "124"}, 124),
-            ("validation", {"ERRORS": "1"}, 1), ("pixels", {"PIXEL_EXIT": "1"}, 1)):
+            ("validation", {"ERRORS": "1"}, 1), ("pixels", {"PIXEL_EXIT": "1"}, 1),
+            ("missing-validation", {"OMIT_VALIDATION": "1"}, 1),
+            ("missing-result", {"OMIT_RESULT": "1"}, 1)):
         env = {**os.environ, "PATH": str(commands)+os.pathsep+os.environ["PATH"],
                "WORK_ROOT": str(fixture/name), "SOURCE_LOCK_FILE": str(scripts/"versions.env"),
                "GITHUB_STEP_SUMMARY": str(fixture/(name+".md")), **settings}
@@ -137,7 +141,37 @@ with tempfile.TemporaryDirectory(prefix="vulkan-tools-") as directory:
             records = list((fixture/name/"evidence").glob("*/*.json"))
             assert len(records) == 51 and all(json.loads(p.read_text())["exit_code"] == 0
                                              for p in records)
-    print("LINUX_ENTRYPOINT=PASS (6 offline cases, no GPU execution)")
+            assert "Failed stage:" not in check.stderr
+        else:
+            stage = "timeline-pixels" if name == "pixels" else "probe"
+            diagnostic = "PIXEL_DIAGNOSTIC" if name == "pixels" else "SMOKE_DIAGNOSTIC"
+            assert f"Failed stage: {stage} (exit {expected})" in check.stderr, check
+            assert diagnostic in check.stderr and '"exit_code":' in check.stderr, check
+    print("LINUX_ENTRYPOINT=PASS (8 offline cases, no GPU execution)")
+
+    shutil.copy2(here/"tests.sh", scripts/"tests.sh")
+    meson = commands/"meson"
+    meson.write_text('#!/bin/sh\nprintf "MESON_DIAGNOSTIC=%s\\n" "$*"\nexit "${TEST_EXIT:-0}"\n')
+    meson.chmod(0o755)
+    for expected in (0, 1):
+        work = fixture/f"library-tests-{expected}"
+        (work/"evidence").mkdir(parents=True)
+        (work/"bin").mkdir()
+        input_test = work/"bin"/"test-hdr-input"
+        input_test.write_text('#!/bin/sh\necho INPUT_DIAGNOSTIC\nexit "${TEST_EXIT:-0}"\n')
+        input_test.chmod(0o755)
+        env = {**os.environ, "PATH": str(commands)+os.pathsep+os.environ["PATH"],
+               "WORK_ROOT": str(work), "SOURCE_LOCK_FILE": str(scripts/"versions.env"),
+               "TEST_EXIT": str(expected)}
+        check = subprocess.run([shutil.which("bash"), str(scripts/"tests.sh")],
+                               capture_output=True, text=True, encoding="utf-8", timeout=60, env=env)
+        assert check.returncode == expected, check
+        if expected:
+            assert check.stderr.count("MESON_DIAGNOSTIC=") == 3, check
+            assert "INPUT_DIAGNOSTIC" in check.stderr, check
+        else:
+            assert not check.stderr, check
+    print("LIBRARY_TEST_LOGS=PASS (2 offline cases)")
 
     argv_script = temp/"argv.sh"
     argv_script.write_text("printf '%s\\n' \"$@\"\n")

@@ -9,6 +9,15 @@ result=$(mktemp -d "$work_root/evidence/linux-software.XXXXXX")
 stage=prepare
 finish() {
     local code=$?
+    if ((code != 0)); then
+        printf 'Failed stage: %s (exit %s)\n' "$stage" "$code" >&2
+        for file in "$result/$stage.log" "$result/$stage.json"; do
+            if [[ -f $file ]]; then
+                printf '\n%s\n' "$file" >&2
+                cat "$file" >&2
+            fi
+        done
+    fi
     {
         printf '## Experimental Linux software Vulkan\n\n'
         printf 'mpv: %s; libplacebo: %s\n\n' "$MPV_COMMIT" "$LIBPLACEBO_COMMIT"

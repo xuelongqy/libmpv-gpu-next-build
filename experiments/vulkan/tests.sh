@@ -14,10 +14,17 @@ for library in libplacebo mpv; do
         echo "$library: PASS"
     else
         echo "$library: FAIL (see $result/$library.log)"
+        cat "$result/$library.log" >&2
         failed=1
     fi
 done
-if ! meson test -C "$work_root/build-mpv" --suite libmpv --print-errorlogs > "$result/libmpv.log" 2>&1; then failed=1; fi
-if ! "$work_root/bin/test-hdr-input" > "$result/input.log" 2>&1; then failed=1; fi
+if ! meson test -C "$work_root/build-mpv" --suite libmpv --print-errorlogs > "$result/libmpv.log" 2>&1; then
+    cat "$result/libmpv.log" >&2
+    failed=1
+fi
+if ! "$work_root/bin/test-hdr-input" > "$result/input.log" 2>&1; then
+    cat "$result/input.log" >&2
+    failed=1
+fi
 printf 'RESULT_DIR=%s\n' "$result"
 exit "$failed"
