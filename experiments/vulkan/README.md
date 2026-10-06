@@ -1,8 +1,12 @@
 # Experimental Vulkan delivery
 
-This is an opt-in, source-only desktop experiment. It does not replace the
+This is an opt-in, source-only experiment. It does not replace the
 OpenGL/GLES source combination in the root `versions.env`. There are no binary
 releases or claims of a stable Vulkan ABI.
+
+The [iOS device smoke](ios/README.md) is separate from the desktop entrypoints.
+Its validation-loader and native-resolution screenshot limitations are recorded
+in [the current validation results](VALIDATION.md), not counted as passes.
 
 The locked API-packaging snapshot uses downstream client API 2.7 and installs
 `render_vk.h`, even when the library is built without Vulkan. This is not an
@@ -12,8 +16,8 @@ the new candidate. Local validation and remote CI are recorded separately.
 
 ## Source and interface identity
 
-- mpv: `690af652e5537502b7cd6d1b0519012d3040cc5e`
-- libplacebo: `5101de2b9354789a019d1933bc45e43b0ee65059`
+- mpv: `089d895f48c9aa67d9a3cffeb563c8cd1188427f`
+- libplacebo: `16140c6d4ee129d79746c89755e0631e065d423c`
 - Header: the candidate installation's `include/mpv/render_vk.h`, not a copied
   header or a source-tree include fallback. Draft version remains 1.
   Check `mpv_client_api_version() >= MPV_MAKE_VERSION(2, 7)` before Vulkan use,
@@ -24,9 +28,11 @@ the new candidate. Local validation and remote CI are recorded separately.
   Including this header requires Vulkan SDK headers even if the library itself
   was built without Vulkan; other Render API headers do not gain that dependency.
 
-The locked commits are published to the configured forks; mpv's packaging
-snapshot follows the 2026-09-28 sync. Checkout verifies the exact full SHA and
-refuses dirty dependency trees; do not silently fall back to another revision.
+The source locks name commits published to the configured forks. Local validation
+used an explicit `SOURCE_LOCK_FILE` naming clean local repositories with these
+same full SHAs; those results are not a remote fresh-clone pass. Checkout verifies
+the exact full SHA and refuses dirty dependency trees; do not silently fall back
+to another revision.
 
 ## Build prerequisites
 
@@ -96,6 +102,24 @@ On Windows replace hwdec with `d3d11va-copy`; use `--display N` to select a
 display. Enumerate audio outputs with the candidate standalone mpv's
 `--no-config --audio-device=help`. Do not assume display 0 or the default audio
 endpoint is the intended TV.
+
+### macOS direct VideoToolbox mapping
+
+`--hwdec videotoolbox` opts into the existing Metal texture mapper instead of
+CPU readback. The client enables `VK_EXT_metal_objects`, declares Metal-device
+export on the instance, and sets `gpu-hwdec-interop=videotoolbox` before mpv
+initialization. Software decoding remains the default; copy paths are unchanged.
+Missing Metal import support or a decoder fallback is not a successful direct
+mapping test. This avoids application CPU readback, not necessarily all internal
+driver copies. It does not enable other platforms or a native Metal Render API.
+
+The macOS `bin/test-metal-import` probe needs no mpv or libplacebo. It imports
+R16/RG16 textures and checks that ordinary unbound and export-only images still
+produce their expected validation errors. The installed 1.4.357 layer currently
+also reports imported Metal images as unbound. A private, matching-version layer
+fix is required for this validation run; do not filter errors or bind dummy memory.
+Use explicit layer/library discovery paths and retain their hashes. The two
+negative-control errors are intentional only in this probe, not in playback.
 
 The default test window is 960x540, not a native-4K playback test. Use
 `--fullscreen` instead of `--window` for desktop fullscreen on the selected

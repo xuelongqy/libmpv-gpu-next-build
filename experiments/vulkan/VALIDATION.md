@@ -1,12 +1,11 @@
 # Delivery validation
 
-Status: the downstream client API 2.7 packaging snapshot was checked locally
-on macOS on 2026-10-04 and is now locked to the commit recorded below.
-The previous Vulkan source lock was revalidated on macOS after the
-2026-09-28 upstream sync. Windows has not yet been rerun against the new lock;
-the Windows results below are retained evidence for the previous validated lock.
-Linux software-device CI now passes as recorded below; this is not a stable
-release/tag or acceptance of all platforms and historical tests.
+Status: the 2026-10-06 closure candidate is checked locally with mpv
+`089d895f48c9aa67d9a3cffeb563c8cd1188427f` and libplacebo
+`16140c6d4ee129d79746c89755e0631e065d423c`. Closure is incomplete: iOS
+native-resolution PNG screenshot differences need investigation and validation
+layers are unavailable; Windows HDR-window checks await the TV. Historical
+results and remote CI below do not count as current-combination acceptance.
 
 Worktree base: `1245b72645002e9e284b42fcdd5588d06abc321e`, branch
 `feat/vulkan-experimental-delivery`. This branch contains the experimental
@@ -17,6 +16,57 @@ Resolution qualification: the earlier desktop matrices and voiced runs below
 used a 960x540 render target unless explicitly noted. A 4K display mode and a
 4K decoded source did not make those native-4K rendering tests. The Windows
 native-4K follow-up is recorded separately below.
+
+## 2026-10-06 closure candidate
+
+Fresh isolated builds use the two full SHAs above and matching installed
+`render_vk.h`. Local Git bundles supply the unpublished mpv test-name commit;
+this is not a remote fresh-clone check. Stable source locks, production sources,
+the original maintenance diff and tags are unchanged. Changes are confined to
+this experimental delivery branch. Private evidence:
+`.work/closure-20261006.umgbld/REPORT.md`.
+
+| Scope | Current-combination result |
+| --- | --- |
+| macOS | mpv 36 pass / 3 skip; libmpv 25 pass / 3 skip; libplacebo 14 pass / 2 skip, no failures. Old OpenGL gpu, gpu-next software/direct, and Vulkan copy-back short checks pass. Portrait 1179x2556 software readback/screenshot difference: 0 codes. |
+| Android emulator | 13 Render API checks pass with zero validation errors; 53 pixel comparisons pass, maximum 1/255. Actual installed native-library identity checked. Standalone images are references, not full validation acceptance. |
+| Windows | Fresh build and SDR identity/probe pass, candidate DLL paths verified. libplacebo 15 pass / 1 skip; mpv 35 pass / 4 fail; libmpv 24 pass / 4 fail. Failures: three locale checks and the existing GGML DLL-lifetime signature; not waived. Only the SDR monitor was detected, so six HDR window cases remain unverified. |
+| iOS functional checks | Software/copy/direct decoding confirmed; 20 direct contexts and 20 load/seek/skip cycles plus 10 native rotations complete. Software 60-second AudioUnit playback completes with PCM stereo and advancing A/V timestamps; the user confirms sound. That SDR fixture combined unrelated video/audio, so it validates output/progress only, not content synchronization. These process results do not override pixel or validation failures. |
+| iOS blockers | Static MoltenVK exposes no validation layers; the required-validation negative case returns setup error 2. The 30-case pixel matrix stops at native-window SDR: offscreen difference 0, window PNG difference 158 codes. Another run differs by 245 codes while raw RGBA screenshot matches VkImage readback. Reversing screenshot order gives matching images but one post-stop nonblack target; attribution is unresolved, not an encoder-only diagnosis or a production fix. |
+
+iOS client revisions and hashes are recorded per run. A client diagnostic change
+is not counted as a rerun of the full matrix. The remaining hardware voiced
+matrix, ten-minute PQ playback, ten real background/foreground cycles and image
+matrix are **not completed**. No claim of complete iOS synchronization, scRGB,
+ICC, tvOS or device-general support is made. No pixel threshold was relaxed.
+
+The corrective original-DV excerpt run completes 60 seconds with actual
+`videotoolbox-copy`, AudioUnit stereo and advancing A/V timestamps. The user
+confirms matching sound and rough physical synchronization. That older client's
+post-stop black-target assertion fails, so its historical case remains failed;
+the audio-content issue is closed separately from the stop-render investigation.
+
+Post-stop readiness now follows the desktop client's `MPV_EVENT_END_FILE` plus
+`vo-configured=false`, rather than decoder parameters disappearing. The new
+client passes 20 native-window context/play/stop/free cycles for each of software,
+copy-back and direct VideoToolbox decoding (60 total), with black targets before
+load and after stop. The paired original-DV copy-back run completes 60.405 seconds
+and its full case passes. Static libraries and headers are unchanged; diagnostics
+are removed. The original intermittent failure did not reproduce in the observer
+runs, so this corrects a tool precondition without claiming definitive attribution
+of that failure. Historical failures, PNG differences and missing validation
+remain separate; the full image matrix was not rerun.
+
+The reviewed client now uses asynchronous commands and property observations
+instead of synchronous property calls on the advanced-control render worker.
+The runner requires all requested context markers and the matching final loop
+marker; a one-of-twenty completion is rejected. This revision passes another
+20 contexts for each of software/copy/direct decoding (60 total, 120 black-target
+checks) and 60.431 seconds of paired original-DV copy-back playback. iOS runner
+self-checks, offline tools, input controls, strict client compilation and script
+checks pass. Validation remains unavailable; background/foreground and the full
+pixel matrix were not rerun. The previously local mpv test-name commit is now
+published; remote CI is separate from these local results.
 
 ## 2026-10-04 Linux software Vulkan CI
 
@@ -596,3 +646,30 @@ its earlier failures. Local provenance and result hashes live under
   real device-loss or absolute luminance/latency calibration claim is made.
 - Known library base-test failures remain failures, separate from Render API
   integration checks. No ignored failure is relabeled pass.
+## macOS direct VideoToolbox mapping — 2026-10-05
+
+Explicit `--hwdec videotoolbox` now reuses the existing Metal texture mapper.
+No production mpv/libplacebo code or default decoder behavior changed. The
+private candidate used mpv render code from `690af652` (current `089d895f` adds
+only test naming) and libplacebo `16140c6d`. These historical results precede the
+2026-10-06 experimental-lock update.
+
+The installed validation layer 1.4.357 incorrectly reports imported Metal
+textures as unbound, independently reproducible without mpv/libplacebo. A
+six-line private layer fix preserves ordinary unbound/export-only failures.
+The system layer was not replaced and no errors were filtered.
+
+| Check | Result |
+| --- | --- |
+| Import probe and two negative controls | Pass with private layer; baseline false positive retained |
+| SDR/HDR10/DV × three outputs × two targets × three decoders | 54 render cases and 36 pixel comparisons pass; validation zero |
+| 50 contexts; both targets' resize/load/seek/skip/screenshot stress | Pass; 40 screenshot pairs, validation zero |
+| Three 60-second runs each: software/copy/direct | Direct versus copy medians: CPU −34%, RSS peak −51%; GPU render time essentially unchanged |
+| 15-minute PQ direct playback | Complete; validation zero, no CPU readback or sustained A/V drift/stall; 11 render drops, 0 decode drops |
+
+Performance validation was disabled only for timing runs. Tested source was 4K
+HEVC; the fullscreen target was 3440×1440, not native-4K display acceptance.
+Private commands, hashes and failures are indexed in
+`.work/zero-copy-macos-20261005.AFLFQl/OPTIMIZATION.md`. Physical feedback for this
+run remains unconfirmed; PQ/scRGB brightness differences and other platforms'
+direct mapping remain outside this acceptance. No version/tag/publication change.

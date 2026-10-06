@@ -1,0 +1,23 @@
+[binaries]
+c = '@CLANG@'
+cpp = '@CLANGXX@'
+objc = '@CLANG@'
+ar = '@AR@'
+strip = '@STRIP@'
+pkg-config = '@PKG_CONFIG@'
+[host_machine]
+system = 'darwin'
+subsystem = '@SUBSYSTEM@'
+kernel = 'xnu'
+cpu_family = 'aarch64'
+cpu = 'aarch64'
+endian = 'little'
+[properties]
+needs_exe_wrapper = true
+[built-in options]
+c_args = ['-target', '@TARGET@', '-isysroot', '@SDK@']
+cpp_args = ['-target', '@TARGET@', '-isysroot', '@SDK@']
+objc_args = ['-target', '@TARGET@', '-isysroot', '@SDK@']
+c_link_args = ['-target', '@TARGET@', '-isysroot', '@SDK@', '-lc++']
+cpp_link_args = ['-target', '@TARGET@', '-isysroot', '@SDK@', '-lc++']
+objc_link_args = ['-target', '@TARGET@', '-isysroot', '@SDK@', '-lc++']

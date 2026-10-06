@@ -7,6 +7,9 @@
 #include <SDL_vulkan.h>
 #endif
 #include <mpv/client.h>
+#ifdef __APPLE__
+#define VK_USE_PLATFORM_METAL_EXT
+#endif
 #include <mpv/render_vk.h>
 #include <limits.h>
 #include <math.h>
@@ -300,6 +303,15 @@ static void init_vulkan(struct app *a, bool window)
 #endif
         .pApplicationInfo = &app, .enabledLayerCount = 1, .ppEnabledLayerNames = &layer,
         .enabledExtensionCount = count, .ppEnabledExtensionNames = extensions};
+#ifdef __APPLE__
+    VkExportMetalObjectCreateInfoEXT metal_export = {
+        .sType = VK_STRUCTURE_TYPE_EXPORT_METAL_OBJECT_CREATE_INFO_EXT,
+        .pNext = ci.pNext,
+        .exportObjectType = VK_EXPORT_METAL_OBJECT_TYPE_METAL_DEVICE_BIT_EXT,
+    };
+    if (!strcmp(a->hwdec, "videotoolbox"))
+        ci.pNext = &metal_export;
+#endif
     VK(vkCreateInstance(&ci, NULL, &a->instance));
     debug.pNext = NULL;
     PFN_vkCreateDebugUtilsMessengerEXT create_debug = (void *)vkGetInstanceProcAddr(
@@ -349,8 +361,21 @@ static void init_vulkan(struct app *a, bool window)
     for (uint32_t i = 0; i < num; i++) {
         if (!strcmp(ext[i].extensionName, "VK_KHR_portability_subset"))
             a->extensions[a->num_extensions++] = "VK_KHR_portability_subset";
+#ifdef __APPLE__
+        if (!strcmp(a->hwdec, "videotoolbox") &&
+            !strcmp(ext[i].extensionName, VK_EXT_METAL_OBJECTS_EXTENSION_NAME))
+            a->extensions[a->num_extensions++] = VK_EXT_METAL_OBJECTS_EXTENSION_NAME;
+#endif
     }
     free(ext);
+#ifdef __APPLE__
+    if (!strcmp(a->hwdec, "videotoolbox")) {
+        bool metal = false;
+        for (int i = 0; i < a->num_extensions; i++)
+            metal |= !strcmp(a->extensions[i], VK_EXT_METAL_OBJECTS_EXTENSION_NAME);
+        if (!metal) unsupported("VideoToolbox direct mapping requires VK_EXT_metal_objects");
+    }
+#endif
     if (window) a->extensions[a->num_extensions++] = VK_KHR_SWAPCHAIN_EXTENSION_NAME;
     float priority = 1;
     VkDeviceQueueCreateInfo q = {.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
@@ -560,6 +585,10 @@ static mpv_vulkan_init_params init_params(struct app *a)
 static void create_mpv(struct app *a)
 {
     a->mpv = mpv_create(); CHECK(a->mpv);
+#ifdef __APPLE__
+    if (!strcmp(a->hwdec, "videotoolbox"))
+        CHECK(mpv_set_option_string(a->mpv, "gpu-hwdec-interop", "videotoolbox") == 0);
+#endif
     const char *opts[][2] = {
         {"config", "no"}, {"vo", "libmpv"}, {"hwdec", a->hwdec},
         {"audio", a->play_seconds ? "auto" : "no"},
@@ -1187,7 +1216,11 @@ int main(int argc, char **argv)
         else if (!strcmp(key,"--screenshot")) screenshot = value;
         else if (!strcmp(key,"--start")) a.start = value;
         else if (!strcmp(key,"--hwdec")) {
-            CHECK(!strcmp(value,"no") || !strcmp(value,"d3d11va-copy") || !strcmp(value,"videotoolbox-copy"));
+            CHECK(!strcmp(value,"no") || !strcmp(value,"d3d11va-copy") || !strcmp(value,"videotoolbox-copy")
+#ifdef __APPLE__
+                  || !strcmp(value,"videotoolbox")
+#endif
+            );
             a.hwdec = value;
         }
         else if (!strcmp(key,"--audio-device")) a.audio_device = value;

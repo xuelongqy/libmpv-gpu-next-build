@@ -1,0 +1,7 @@
+moltenvk-build 1.4.2 MoltenVK-all.zip vulkan 551bf9ee4e6fe1f9a148a6aef8eff5e5e6e0c0be9dedda2405812023d4a38c60
+libshaderc-build 2025.5.0 libshaderc-all.zip libshaderc 1079da73a292e5b2cea6a02fa2208c4935ead79a98043f81708424510e0ab53f
+libass-build 0.17.5 libass-all.zip libass d5e4b6046d0a4198fb97083816348b2229071749de8c429747a9558c325a1d3a
+libass-build 0.17.5 libfreetype-all.zip libfreetype d5fb41dd3d66c6e433b389a398571b51b8d65f3f9e81f10ee61d5434a647749e
+libass-build 0.17.5 libfribidi-all.zip libfribidi 7ae8cf8c8b16a8b4ebc004f3368044d9baf8454398d18d9e8bc37964b04a2fe6
+libass-build 0.17.5 libharfbuzz-all.zip libharfbuzz ff67179fb84a9a0f34b2ba276c4028823fecd90315cf18496be400cdfc768a3e
+libass-build 0.17.5 libunibreak-all.zip libunibreak a7a9c0afa36e2301eec583e5575c30c1609357045d718565d06faf93abc56617

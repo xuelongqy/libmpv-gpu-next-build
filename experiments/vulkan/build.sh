@@ -71,6 +71,10 @@ for source in smoke test-hdr-input; do
         -o "$work_root/bin/$source"
 done
 if [[ $platform == macos ]]; then
+    # shellcheck disable=SC2046
+    cc -Wall -Wextra -Werror -O1 -g "$experiment_dir/smoke/test-metal-import.m" \
+        $(pkg-config --cflags --libs vulkan) -framework Metal -framework Foundation \
+        -o "$work_root/bin/test-metal-import"
     otool -L "$prefix_root/lib/libmpv.2.dylib" | tee "$work_root/evidence/linkage.txt"
     grep -F "$prefix_root/lib/libplacebo" "$work_root/evidence/linkage.txt"
 elif [[ $platform == linux ]]; then
