@@ -2,10 +2,15 @@
 
 Status: the 2026-10-06 closure candidate is checked locally with mpv
 `089d895f48c9aa67d9a3cffeb563c8cd1188427f` and libplacebo
-`16140c6d4ee129d79746c89755e0631e065d423c`. Closure is incomplete: iOS
-native-resolution PNG screenshot differences need investigation and validation
-layers are unavailable; Windows HDR-window checks await the TV. Historical
-results and remote CI below do not count as current-combination acceptance.
+`16140c6d4ee129d79746c89755e0631e065d423c`. The 2026-10-11 Windows TV recheck
+passes, including native 4K HDR playback. The isolated six-line libplacebo
+candidate below resolves the iOS raw-screenshot discrepancy; it is not yet
+committed or part of the source lock. Closure is still incomplete: iOS hardware
+background recovery reproduces without Render API. The serialized client-only
+recovery below now passes the targeted functional checks, including paused
+SDR/PQ frames; iOS validation layers remain unavailable.
+Historical results and remote CI do not replace per-platform current-combination
+acceptance.
 
 Worktree base: `1245b72645002e9e284b42fcdd5588d06abc321e`, branch
 `feat/vulkan-experimental-delivery`. This branch contains the experimental
@@ -16,6 +21,222 @@ Resolution qualification: the earlier desktop matrices and voiced runs below
 used a 960x540 render target unless explicitly noted. A 4K display mode and a
 4K decoded source did not make those native-4K rendering tests. The Windows
 native-4K follow-up is recorded separately below.
+
+## 2026-10-11 Windows TV recheck
+
+The same locked Windows libraries are verified by clean source SHAs, file hashes
+and actual process module paths. RTX 2070 SUPER exposes Vulkan 1.4.351 and OpenGL
+4.4. The TV initially had HDR user-enabled but inactive at 4K120; reasserting HDR
+did not activate it. With explicit user permission, only the TV was changed to
+4K60, which activates HDR and exposes RGB10/PQ and FP16/extended-linear-sRGB.
+The second display and system volume are unchanged. Windows reports link BPC=8:
+this does not establish a physical 10-bit link or absolute luminance calibration.
+
+| Check | Result |
+| --- | --- |
+| SDR/HDR10/DV x SDR/PQ/scRGB x offscreen/window | 18/18 pass, validation zero; all saved-target differences 0 codes/ULP |
+| Native 3840x2160 PQ/scRGB, actual D3D11VA copy-back | Four renders pass, validation zero; same-PTS offscreen/fullscreen differences 0 ten-bit codes / 0 FP16 ULP |
+| Probe, injected failure, 50 contexts; 20 mode-switch rounds | Pass, validation zero |
+| PQ lifecycle | 100 resize/retire, 20 loads, 20 seek/skip/screenshot cycles and all 42 A/V segments pass; 20 pixel pairs pass within one ten-bit code, validation zero |
+| Native-4K voiced PQ/scRGB short playback | Both complete 60 seconds, actual copy-back and real HDMI PCM stereo, client volume 50; validation zero |
+| Native-4K voiced PQ long playback | Completes 900.006 seconds; validation zero, decoder drops 0 and display drops 1 (startup count, unchanged). Maximum sampled steady avsync 0.055 ms; no stall or sustained drift |
+| OpenGL compatibility | Seven selector/render/FBO cases pass; default versus explicit gpu differs by 0 codes |
+| Library tests | libplacebo 15 pass / 1 skip; mpv 36 pass / 3 fail; separate libmpv 24 pass / 4 fail. Input self-check and offline tools pass |
+
+The user confirms normal native-4K PQ full-screen size/detail/fluidity and
+matching sound. The two short-play visual checks were missed; no new scRGB
+physical display acceptance or measured physical synchronization is claimed.
+Working-set sampling shows no continuing growth during this long run, not a
+general leak-free or performance conclusion. All test processes and temporary
+tasks exit; the user-approved TV 4K60/HDR setting is retained.
+
+The three locale subtitle-selection failures remain. Lifetime passes in the
+full run but fails separately with the prior GGML assertion signature; it is
+not waived or newly attributed by this recheck. The overall library suite is
+not green. No production code, source lock, original maintenance diff, commit
+or tag was changed. Private commands, hashes, modules and complete evidence
+index: `.work/windows-tv-20261011.8RuhUl/REPORT.md`.
+
+## 2026-10-11 remaining-check follow-up
+
+The same locked sources are built in a new WSL directory; actual process maps
+confirm the candidate libraries and synchronization validation layer. The Vulkan
+device is llvmpipe (LLVM 15.0.7), API 1.3.255, not the physical Windows GPU.
+
+| Check | Result |
+| --- | --- |
+| WSL software Vulkan | 8 render/probe/lifecycle cases and 43 pixel comparisons pass (51/51); maximum difference one 8-bit code, validation zero |
+| WSL library tests | libplacebo 16 pass; mpv 39 pass / 1 fail; libmpv 27 pass / 1 fail. Both failures are lifetime SIGSEGV |
+| WSL failure controls | Retained official upstream reproduces the thread-exit crash with its actual library verified. An EGL-only program, linking neither mpv nor libplacebo, reproduces SIGSEGV after EGL termination |
+| Windows failure controls | Retained official upstream reproduces all three locale assertions. Candidate and upstream lifetime pass this invocation; independent GGML reload fails only with libstdc++ retained. Historical intermittent failures are not erased |
+| Windows native-4K scRGB supplement | Actual D3D11VA copy-back and HDMI PCM playback complete 60.004 seconds; validation zero, sampled steady avsync at most 0.012 ms. Physical visual/sound feedback remains unconfirmed |
+
+These controls distinguish existing language/dependency/WSLg failures from the
+Vulkan Render API checks; they do not make the overall base suites green.
+iPhone physical devices were unavailable during that check, leaving the iOS
+pixel/validation/background/PQ gaps. No Android physical-device or native-Linux
+GPU claim is added.
+The WSL private Python is 3.10, below the documented delivery-tool requirement;
+these executed GPU/library checks are not a full tool-environment certification.
+Mac offline tools pass. Production sources, stable locks, tags and the original
+maintenance diff remain unchanged; all test processes/tasks exit. Private
+commands, hashes, logs and evidence: `.work/closure-followup-20261011.K8L3GK/REPORT.md`.
+
+## 2026-10-11 connected-phone and TV supplement
+
+A ready-confirmed native-4K scRGB repeat completes on the TCL TV, with actual
+D3D11VA copy-back, HDMI PCM audio and validation zero. The user confirms normal
+picture and matching sound; this supplies the previously missed observation.
+
+The same verified signed iOS client is reinstalled without clearing data on the
+wired iPhone 14 Pro (iOS 26.6.2); all results use fresh case IDs and deadlines.
+
+| iOS check | Result |
+| --- | --- |
+| Software/copy/direct x five media/output pairs x offscreen/window | 30/30 functional cases complete; all 30 target/PNG pairs pass (SDR 0 codes, PQ at most one ten-bit code) |
+| SDR target/raw-RGBA pairs | 9/18 pass; nine fail, including two entirely black raw captures. Full matrix returns failure; screenshot acceptance remains open |
+| Software background/foreground | Ten real Settings/app round trips retain the same process, rebuild targets and restore advancing audio/video; 60 seconds active playback and stop/black cleanup pass |
+| PQ hardware foreground long playback | 600.443 seconds, actual VideoToolbox copy-back and Speaker PCM stereo; no fallback/stall, maximum sampled steady avsync 11.328 ms; stop/black/context cleanup pass |
+| Hardware background recovery | First deliberate round trip invalidates the VideoToolbox session (-12903/-17694), falls back to software and correctly fails the requested-decoder assertion; attribution remains unconfirmed |
+
+The static MoltenVK client still does not enable validation; requiring it returns setup
+error 2. No iOS synchronization-zero, fresh physical listening confirmation or
+absolute luminance claim is added. Historical failures are retained. Production
+sources, locks, original maintenance diff and tags are unchanged; no commit or
+push. Windows/iOS processes and temporary tasks exit. Private commands, hashes
+and evidence: `.work/ios-tv-followup-20261011.XGvg4g/REPORT.md`.
+
+## 2026-10-11 iOS screenshot fix candidate
+
+The candidate adds six lines to libplacebo `src/vulkan/context.c`:
+`pl_vulkan_import()` queries and saves driver properties just as the existing
+self-created-device path does. Imported MoltenVK devices now use the existing
+fence workaround. An independent probe without mpv reproduced the original
+download inconsistency, identifying a dependency omission exposed by device
+import, not a new screenshot conversion or color-mapping defect.
+
+The source base remains the locked pair above. libplacebo diff SHA-256:
+`2d52fc01c7bea38270fb94a997a887eb3184d40261ec75d2250ecc93efa05de5`.
+Both private candidate libraries are built from this changed checkout; the
+iOS app uses the unchanged client, static mpv and matching header. Prior
+libraries, source locks and tags are untouched.
+
+| Targeted check | Result |
+| --- | --- |
+| iPhone independent import/create render-download probes | 40/40 pass each, maximum one 8-bit code; no mpv handle |
+| iPhone SDR/HDR10-to-SDR/DV-to-SDR x software/copy/direct x offscreen/window | 18/18 complete; all raw-RGBA and PNG pairs pass, maximum difference 0 codes |
+| macOS SDR offscreen/timeline and window/binary | 2/2 pass; target/screenshot difference 0 codes, validation zero |
+| Candidate libplacebo native tests | 15 pass / 0 fail / 1 OpenGL-surfaceless skip |
+| Existing unchanged libmpv test binaries with candidate library | 25 pass / 0 fail / 3 locale skips; no fresh mpv build claim |
+
+Before the fix, the independent import probe failed 21/40 while self-creation
+passed; the prior raw screenshot matrix failed 9/18. Those failures remain in
+the historical records above. Thresholds are unchanged. Review of the six-line
+diff found no actionable issue in version requirements, property lifetime or
+the existing fence ownership path.
+
+iOS validation is still not enabled. This targeted SDR-output matrix does not
+revalidate PQ display, hardware background recovery or other platforms, and
+does not constitute complete iOS synchronization acceptance. No production
+commit or push was performed. Candidate hashes, commands and logs:
+`.work/ios-raw-fix-20261011.2keWo6/REPORT.md`.
+
+## 2026-10-11 iOS hardware background attribution
+
+The screenshot-fix candidate still reproduces hardware fallback after real
+Settings/app round trips. A private UIKit control using `vo=null`, the same
+static mpv/FFmpeg libraries, same retained DV excerpt, actual
+`videotoolbox-copy`, AudioUnit stereo and volume 50 reproduces it twice. This
+control creates no Vulkan device or Render API context and never calls gpu-next;
+the same process PID is retained across each round trip.
+
+Both control runs report `kVTInvalidSessionErr` (-12903), followed by
+`kVTVideoDecoderReferenceMissingErr` (-17694), then `hwdec-current=no` and
+failure of the requested-hardware check. The candidate Vulkan run has the
+same signature. Removing Render API does not remove the failure: this is not
+a gpu-next/Vulkan-specific regression or an effect of the six-line screenshot
+fix. Hardware background acceptance remains failed, not waived.
+
+| Background control | Result |
+| --- | --- |
+| Candidate Vulkan + VideoToolbox copy-back | Fails after round trips with invalid-session/reference-missing errors and software fallback |
+| No Render API, `vo=null` + VideoToolbox copy-back | Two independent runs fail after the first round trip with the same signature; same PID retained |
+| Candidate Vulkan + software decoding | Three real round trips restore advancing audio/video, complete 40 seconds of active playback and stop/black cleanup; exit 0 |
+
+The software control passes functionally, not as validation-zero acceptance:
+the iOS client still does not enable validation layers.
+
+The pinned, clean FFmpeg source marks an invalid session for reconfiguration;
+subsequent missing-reference callbacks do not request another reconfiguration.
+mpv's unchanged hardware-error handling falls back after its default three
+decode errors. The downstream decoder diff only changes film-grain capability
+lookup, not this HEVC recovery path. This locates the failure in the shared
+VideoToolbox/FFmpeg recovery chain; the exact OS session-invalidation trigger
+and a keyframe-safe recovery remedy are not established by this test. No
+renderer, mapper, decoder or dependency fix is attempted.
+
+Commands, process IDs, source/library/client identities, logs and control
+results are retained in `.work/ios-background-attribution-20261011.imWo2M/REPORT.md`.
+The normal signed screenshot-fix client is restored without clearing app data.
+Source locks, production diffs, tags and the original maintenance worktree
+remain unchanged; no commit or push.
+
+## 2026-10-11 client-only background recovery candidate
+
+The no-render UIKit control first passes three real background round trips
+using the existing hwdec reinitialization path, with exact PTS and no unexpected
+software fallback. No decoder, FFmpeg or renderer change is required for that
+control. A candidate iOS client pauses, rebuilds targets, toggles hwdec back to
+the requested VideoToolbox mode, seeks to the saved PTS and checks fresh async
+properties before resuming. VT copy and direct each pass ten real round trips
+and 60 seconds active playback; software passes three and 40 seconds. These
+are functional playback results, not full recovery acceptance.
+
+The already-paused copy test fails: an earlier automatic seek's restart event
+is mistaken for completion of the final precise seek. The core still restarts
+at 4.25 when the client declares saved PTS 1 restored; the correct PTS-1 frame
+arrives later. The real target and GPU raw screenshot differ by 211 eight-bit
+codes. App PASS markers and a current time-pos property cannot establish that
+the requested frame has actually become ready. Stop/background returns black,
+but does not waive the paused-frame failure. Direct/software paused checks
+are not run after this failure.
+
+After three candidate iterations, implementation stops rather than adding
+more patches. The next client-only attempt must serialize the existing hwdec
+and seek operations through completion. The unaccepted source/patch and every
+failure remain in `.work/ios-background-recovery-20261011.zbuOVv/REPORT.md`;
+the tracked client is restored to its pre-task state. Existing screenshot fix,
+production HEADs, locks, tags and original maintenance diff are unchanged.
+iOS validation remains unavailable; no commit or push is performed.
+
+## 2026-10-11 serialized client recovery
+
+The accepted functional candidate waits for each hwdec update's SEEK and
+PLAYBACK_RESTART before issuing the next operation, then completes the saved
+exact seek before restoring pause. The advanced-control worker uses async
+commands/property reads and services pending frames with SKIP_RENDERING; it
+does not infer frame readiness from time-pos. Genuine background transitions
+trigger recovery, not software decoding or a stopped/no-video context.
+
+- No Render API, vo=null: three real VT-copy background round trips pass.
+- Vulkan PQ: VT copy/direct each pass ten real round trips and 60 seconds active
+  playback; software passes three and 40 seconds. Actual restart PTS matches the
+  saved position, requested decoding is retained, and stop/black/free completes.
+- Paused/stop/background/reload controls pass for SDR software/copy/direct and
+  PQ copy/direct. Hardware resumed targets equal their pre-background frames;
+  raw/PNG comparisons stay within the unchanged one-code thresholds.
+- The tracked-source client rebuild passes the existing PQ copy/direct stress
+  checks: 20 loads and 20 seek/skip/screenshot operations each; all 40 pixel
+  pairs remain within one ten-bit code. No test process remains running.
+
+Only the iOS client changes; decoder/renderer, locked sources and the original
+maintenance worktree do not. The existing six-line libplacebo screenshot
+candidate remains separate. An overlapping test launch interrupts two initial
+attempts; neither counts as a pass, and complete serial reruns replace them for
+acceptance without overwriting the failed evidence. This closes the tested
+client recovery failure, not Apple's session invalidation, iOS validation-zero
+acceptance or all-device support. Source/library identities, commands and every
+result: `.work/ios-background-serial-20261011.OpnA1k/REPORT.md`. No commit or push.
 
 ## 2026-10-06 closure candidate
 

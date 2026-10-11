@@ -16,6 +16,7 @@
 
 static pthread_mutex_t ui_mutex = PTHREAD_MUTEX_INITIALIZER;
 static bool ui_active;
+static bool ui_backgrounded;
 static uint32_t ui_width, ui_height;
 
 struct test {
@@ -54,6 +55,8 @@ struct test {
     uint64_t command_id, replied;
     int command_error;
     unsigned restarts;
+    unsigned seeks;
+    bool seek_pending;
     bool configured, ended, paused;
     double pts, audio_pts, avsync;
     bool audio_seen;
@@ -101,11 +104,12 @@ static void pump(struct test *t)
             fprintf(stderr, "[%s/%s] %s", m->prefix, m->level, m->text);
         }
         if (e->event_id == MPV_EVENT_FILE_LOADED) t->loaded = true;
-        if (e->event_id == MPV_EVENT_PLAYBACK_RESTART) t->restarts++;
-        if (e->event_id == MPV_EVENT_COMMAND_REPLY) {
+        if (e->event_id == MPV_EVENT_SEEK) { t->seeks++; t->seek_pending = true; }
+        if (e->event_id == MPV_EVENT_PLAYBACK_RESTART) { t->restarts++; t->seek_pending = false; }
+        if (e->event_id == MPV_EVENT_COMMAND_REPLY || e->event_id == MPV_EVENT_GET_PROPERTY_REPLY) {
             t->replied = e->reply_userdata;
             t->command_error = e->error;
-            if (t->raw_capture && !e->error) {
+            if (e->event_id == MPV_EVENT_COMMAND_REPLY && t->raw_capture && !e->error) {
                 mpv_node *result = &((mpv_event_command *)e->data)->result;
                 CHECK(result->format == MPV_FORMAT_NODE_MAP);
                 int64_t w = 0, h = 0, stride = 0;
@@ -128,7 +132,7 @@ static void pump(struct test *t)
                 t->raw_capture = nil;
             }
         }
-        if (e->event_id == MPV_EVENT_PROPERTY_CHANGE) {
+        if (e->event_id == MPV_EVENT_PROPERTY_CHANGE || e->event_id == MPV_EVENT_GET_PROPERTY_REPLY) {
             mpv_event_property *p = e->data;
             if (!strcmp(p->name, "time-pos")) t->pts = p->data ? *(double *)p->data : -1;
             if (!strcmp(p->name, "audio-pts")) t->audio_pts = p->data ? *(double *)p->data : NAN;
@@ -165,6 +169,28 @@ static void command(struct test *t, const char **args)
     double deadline = CACurrentMediaTime() + 15;
     do { pump(t); CHECK(CACurrentMediaTime() < deadline); usleep(1000); } while (t->replied != id);
     CHECK(t->command_error == 0);
+}
+
+static void restart_command(struct test *t, const char **args)
+{
+    unsigned seek = t->seeks;
+    command(t, args);
+    double deadline = CACurrentMediaTime() + 15;
+    while (t->seeks == seek || t->seek_pending) {
+        pump(t);
+        if (t->seeks != seek && !t->seek_pending) break;
+        mpv_render_frame_info info = {0};
+        CHECK(mpv_render_context_get_info(t->render,
+            (mpv_render_param){MPV_RENDER_PARAM_NEXT_FRAME_INFO, &info}) == 0);
+        if (info.flags & MPV_RENDER_FRAME_INFO_PRESENT) {
+            int skip = 1, block = 0;
+            mpv_render_param params[] = {{MPV_RENDER_PARAM_SKIP_RENDERING, &skip},
+                {MPV_RENDER_PARAM_BLOCK_FOR_TARGET_TIME, &block}, {0}};
+            CHECK(mpv_render_context_render(t->render, params) == 0);
+            mpv_render_context_report_swap(t->render);
+        } else usleep(1000);
+        CHECK(CACurrentMediaTime() < deadline);
+    }
 }
 
 static void wait_frame(struct test *t)
@@ -442,6 +468,8 @@ static void window_state(struct test *t)
     if (resumed) {
         pump(t);
         bool paused = t->paused;
+        bool recover = t->loaded && t->configured &&
+            (!strcmp(t->decoder, "videotoolbox-copy") || !strcmp(t->decoder, "videotoolbox"));
         command(t,(const char *[]){"set","pause","yes",NULL});
         double started = CACurrentMediaTime();
         fprintf(stderr,"IOS_BACKGROUND=1\n");
@@ -451,12 +479,38 @@ static void window_state(struct test *t)
             active = ui_active; width = ui_width; height = ui_height;
             pthread_mutex_unlock(&ui_mutex);
         }
-        t->background_seconds += CACurrentMediaTime()-started;
+        pthread_mutex_lock(&ui_mutex);
+        recover &= ui_backgrounded;
+        ui_backgrounded = false;
+        pthread_mutex_unlock(&ui_mutex);
+        if (width && height) {
+            drop_targets(t);
+            make_targets(t);
+            fprintf(stderr,"IOS_TARGET_REBUILT=%ux%u GENERATION=%llu\n",t->width,t->height,(unsigned long long)t->generation);
+        }
+        if (recover) {
+            pump(t);
+            double pts = t->pts;
+            CHECK(pts >= 0);
+            // Each hwdec update queues a seek; finish it before issuing the next.
+            restart_command(t, (const char *[]){"set", "hwdec", "no", NULL});
+            restart_command(t, (const char *[]){"set", "hwdec", t->hwdec, NULL});
+            char position[64];
+            snprintf(position, sizeof(position), "%.9f", pts);
+            restart_command(t, (const char *[]){"seek", position, "absolute+exact", NULL});
+            uint64_t id = ++t->command_id;
+            CHECK(mpv_get_property_async(t->mpv, id, "hwdec-current", MPV_FORMAT_STRING) == 0);
+            double deadline = CACurrentMediaTime() + 15;
+            do { pump(t); CHECK(CACurrentMediaTime() < deadline); usleep(1000); } while (t->replied != id);
+            CHECK(t->command_error == 0 && !strcmp(t->decoder, t->hwdec));
+            fprintf(stderr,"IOS_HWDEC_RECOVERED=%s PTS_BEFORE=%.6f PTS_AFTER=%.6f\n",t->decoder,pts,t->pts);
+        }
         command(t,(const char *[]){"set","pause",paused ? "yes" : "no",NULL});
+        t->background_seconds += CACurrentMediaTime()-started;
         t->resumes++;
         fprintf(stderr,"IOS_RESUME=%u\n",t->resumes);
     }
-    if (width && height && (resumed || width != t->width || height != t->height)) {
+    if (width && height && !resumed && (width != t->width || height != t->height)) {
         drop_targets(t);
         make_targets(t);
         fprintf(stderr,"IOS_TARGET_REBUILT=%ux%u GENERATION=%llu\n",t->width,t->height,(unsigned long long)t->generation);
@@ -806,6 +860,10 @@ static void run(CAMetalLayer *layer, unsigned context)
 - (void)applicationWillResignActive:(UIApplication *)application
 {
     pthread_mutex_lock(&ui_mutex); ui_active = false; pthread_mutex_unlock(&ui_mutex);
+}
+- (void)applicationDidEnterBackground:(UIApplication *)application
+{
+    pthread_mutex_lock(&ui_mutex); ui_backgrounded = true; pthread_mutex_unlock(&ui_mutex);
 }
 - (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)options
 {
