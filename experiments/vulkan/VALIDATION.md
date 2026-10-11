@@ -52,6 +52,7 @@ tracking regresses. No invalid GPU dispatch or playback wait is added.
 | Reviewed evidence | Result |
 | --- | --- |
 | Enhanced probe, iOS and macOS | Each passes 19 checks, exactly 11 expected errors by type/count |
+| Packaged iPhone probe, unlocked retry | 19/19 controls pass, exactly 11 expected errors; exit 0 in 1.042 seconds, no libmpv handle created |
 | macOS mutation removing only alias-destruction protection | Expected failure: one queued WAW instead of two; guard still rejects submit |
 | Existing iOS final candidate playback/recovery | 13/13 normal cases, 20/20 comparisons, seven background transitions; validation zero |
 | Existing macOS direct SDR/PQ candidate | 10/10 cases, 20/20 comparisons, validation zero; matching baseline controls also pass |
@@ -75,11 +76,25 @@ libmpv dependency in the probe and no loader/layer dependency in the static app.
 Preparation reuse/dirty-checkout controls, runner self-checks, offline tools,
 syntax, ShellCheck and diff checks pass. The first probe link failure (missing
 direct Metal/Foundation links) is retained and corrected only in probe flags.
-An attempted delivery-probe launch is blocked by the locked phone, not counted
-as a pass; the reviewed iOS 19-control result above remains separate evidence.
+The first delivery-probe launch was blocked by the locked phone, not counted
+as a pass; its failure remains in `probe-ios.json`. After unlocking the tested
+iPhone 14 Pro, the packaged probe is rerun on 2026-10-11 at 21:47 Asia/Shanghai
+under a fresh `probe-ios-unlocked` prefix. All 19 controls pass with exactly
+11 intentional errors by type/count; launcher and probe exit 0. Matching
+case-specific result/final-context markers and actual loaded loader, MoltenVK
+and patched-layer paths are recorded. This is `negative_controls`, not a
+zero-error playback result. Signed binary hashes and the command are indexed
+in `probe-ios-unlocked.md`; the original locked-device log is not overwritten.
 The newly built default static app is restored without clearing data; no test
 process remains. This migration does not claim a new full iOS playback matrix.
 Migration evidence: `.work/metal-sync-delivery-20261011.KHTm82/`.
+
+[CI run 38143574814](https://github.com/xuelongqy/libmpv-gpu-next-build/actions/runs/38143574814)
+for delivery `d595cacb57cd4cb59018e98ae4ed8b38731327c0` completes successfully.
+Its `linux-software` job passes the locked build, library tests and Lavapipe
+readback/lifecycle checks. This Linux software-device result does not replace
+iPhone/macOS hardware validation or expand its acceptance scope.
+
 Historical failures and
 the earlier six-line-only coverage limitation remain in the following sections.
 No renderer/API change or new all-device/HDR-luminance acceptance is claimed.
