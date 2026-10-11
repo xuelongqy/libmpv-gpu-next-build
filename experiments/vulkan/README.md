@@ -2,13 +2,14 @@
 
 This is an opt-in, source-only experiment. It does not replace the
 OpenGL/GLES source combination in the root `versions.env`. There are no binary
-releases or claims of a stable Vulkan ABI.
+releases. The Vulkan v1 ABI is stable within the downstream mpv fork, not an
+upstream API release or a claim of all-platform acceptance.
 
 The [iOS device smoke](ios/README.md) is separate from the desktop entrypoints.
 The tested iPhone's screenshot and background-recovery regressions pass with the
-remote-locked combination. The opt-in validation runs include SDR/PQ and hardware
-recovery. The packaged validation-layer candidate passes imported-texture
-WAW/RAW negative controls and targeted direct-mapping regressions; the official
+previous 2.7 remote-locked combination. The opt-in validation runs include
+SDR/PQ and hardware recovery. The packaged validation-layer candidate passes
+imported-texture WAW/RAW negative controls and targeted direct-mapping regressions; the official
 layer still misses these hazards. Full cross-API synchronization remains outside
 that result. See [the opt-in build/probe](validation/README.md),
 [the packaged checks](VALIDATION.md#2026-10-11-packaged-metal-import-validation),
@@ -17,32 +18,42 @@ that result. See [the opt-in build/probe](validation/README.md),
 and [the remote-locked regression](VALIDATION.md#2026-10-11-remote-locked-ios-regression),
 including retained historical failures.
 
-The locked API-packaging snapshot uses downstream client API 2.7 and installs
+The locked snapshot uses downstream client API 2.8 and installs
 `render_vk.h`, even when the library is built without Vulkan. This is not an
-upstream API release. The experiment lock names the committed 2.7 snapshot.
-The build/client/CI reject older snapshots rather than silently testing them as
-the new candidate. Local validation and remote CI are recorded separately.
+upstream API release. v1 freezes the existing 2.7/draft 1 layout and behavior;
+existing clients remain compatible. Local validation and remote CI are recorded
+separately, without relabeling older platform runs as new-combination passes.
 
 ## Source and interface identity
 
-- mpv: `089d895f48c9aa67d9a3cffeb563c8cd1188427f`
+- mpv: `498c2aa535e0f90dbb4404225e053dbc81f6342e`
 - libplacebo: `b7779734692e4b6fbd72987976aa11aad51f7ee7`
 - Header: the candidate installation's `include/mpv/render_vk.h`, not a copied
-  header or a source-tree include fallback. Draft version remains 1.
-  Check `mpv_client_api_version() >= MPV_MAKE_VERSION(2, 7)` before Vulkan use,
-  then check context creation for actual backend availability. A version number
-  alone does not guarantee Vulkan support or identify draft revisions.
-  Use the header and library from the same experiment. Incompatible structure
-  or semantic changes must bump the draft version; mismatches are rejected.
+  header or a source-tree include fallback. `MPV_VULKAN_API_VERSION` is 1;
+  `MPV_VULKAN_DRAFT_VERSION` remains an alias for existing clients.
+  New clients check that `mpv_client_api_version()` has major 2 and minor >= 8,
+  then check context creation for actual backend/device support. Set `version`
+  to `MPV_VULKAN_API_VERSION` in init, target and retirement parameters; unknown
+  versions return `MPV_ERROR_INVALID_PARAMETER`. A missing backend returns
+  `MPV_ERROR_NOT_IMPLEMENTED`, and unsupported devices return
+  `MPV_ERROR_UNSUPPORTED`.
   Including this header requires Vulkan SDK headers even if the library itself
   was built without Vulkan; other Render API headers do not gain that dependency.
 
-The source locks name commits published to the configured forks. The 2026-10-11
-Linux software-Vulkan CI and targeted iOS regression use fresh remote checkouts
-of this combination. Earlier local-source checks remain historical evidence,
-not remote fresh-clone passes or new full-platform acceptance. Checkout verifies
-the exact full SHA and refuses dirty dependency trees; do not silently fall back
-to another revision.
+The source locks name commits published to the configured forks. The earlier
+Linux software-Vulkan CI and targeted iOS regression used the 2.7 combination;
+they remain historical evidence, not new 2.8 full-platform acceptance. The
+existing experimental CI builds the current lock from remote sources and runs
+the library tests, including v1 ABI assertions, and software-device checks.
+Checkout verifies the exact full SHA and refuses dirty dependency trees; do not
+silently fall back to another revision.
+
+v1 structure sizes/alignment, field types/order, parameter numbers and target
+states are frozen for each supported platform's C ABI, not a serialized format.
+Future extensions must retain v1 and use new parameters or explicitly versioned
+structures, without appending fields or strengthening v1 device requirements.
+The existing smoke clients intentionally retain the draft alias and 2.7 minimum
+as compatibility clients; new integrations should use the v1/2.8 checks above.
 
 ## Build prerequisites
 

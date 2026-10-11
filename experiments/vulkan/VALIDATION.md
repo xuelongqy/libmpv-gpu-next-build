@@ -1,7 +1,9 @@
 # Delivery validation
 
-Status: the latest remote-locked combination passes Linux software-Vulkan CI
-and the targeted iOS screenshot/background-recovery regression below. The
+Status: the experiment now locks Vulkan v1 / client API 2.8; its targeted ABI and
+compatibility checks are recorded below. The prior 2.7 remote-locked combination
+passes Linux software-Vulkan CI and the targeted iOS screenshot/background-recovery
+regression below. Those platform runs are not fresh 2.8-combination acceptance. The
 opt-in iOS PQ/hardware/background checks also pass with the private Metal-import
 validation-layer correction described below, not with the unmodified layer.
 The official layer misses synchronization coverage for imported Metal textures;
@@ -30,6 +32,33 @@ Resolution qualification: the earlier desktop matrices and voiced runs below
 used a 960x540 render target unless explicitly noted. A 4K display mode and a
 4K decoded source did not make those native-4K rendering tests. The Windows
 native-4K follow-up is recorded separately below.
+
+## 2026-10-11 Vulkan v1 / client API 2.8
+
+The experimental lock now uses mpv `498c2aa535e0f90dbb4404225e053dbc81f6342e`
+with unchanged libplacebo `b7779734692e4b6fbd72987976aa11aad51f7ee7`.
+This formalizes the downstream v1 ABI without changing renderer behavior,
+structure layouts, parameter numbers, device requirements or synchronization.
+The root OpenGL lock and earlier evidence remain unchanged.
+
+The reviewed candidate passes the complete macOS Meson suite (37 pass, three
+locale skips), and the pre-commit libmpv suite (26 pass, three locale skips).
+C11/C++11 ABI compilation passes against old/new headers for macOS arm64,
+Windows x64, Linux x64, Android arm64 and iOS arm64 (20 checks). The validated
+64-bit sizes remain init/target/retire = 88/88/24 bytes, alignment 8.
+The 108 exported symbols and library major 2 remain unchanged.
+
+Unrebuilt 2.7 Vulkan/OpenGL/software clients load the 2.8 candidate successfully.
+Vulkan init/target/retire/skip probes retain their error/state behavior, with
+validation zero; actual SDR target pixels match the 2.7 baseline exactly.
+New-client guards accept 2.8 and reject 2.7 before creating an mpv handle.
+Private commands and logs are retained in `/private/tmp/mpv-vulkan-api-v1.8Na1kO/`.
+
+The existing experimental CI builds this remote lock and runs the ABI/library
+and Lavapipe checks. Its result is separate from the earlier 2.7 CI runs below.
+No new full hardware matrix, 32-bit ABI or device-loss acceptance is claimed.
+Existing macOS disabled-Vulkan Cocoa/lifetime failures were reproduced at the
+pristine 2.7 baseline and remain failures, not waived integration passes.
 
 ## 2026-10-11 packaged Metal import validation
 
@@ -1110,8 +1139,9 @@ its earlier failures. Local provenance and result hashes live under
 
 ## Known limits
 
-- The Vulkan ABI remains experimental. Installed `render_vk.h` draft 1 must
-  match the experimental library; downstream client API 2.7 is not ABI stability.
+- Vulkan v1 is ABI-stable only in this downstream fork, not an upstream API.
+  New clients require major 2/minor >= 8 and must check backend/device support;
+  old 2.7/draft 1 clients remain compatible. The 32-bit ABI has not been validated.
 - macOS PQ/scRGB physical brightness equivalence remains unresolved.
 - Windows reported an 8-bpc link during the previous TV validation; an RGB10
   application target does not prove a 10-bit wire format or Dolby Vision output.

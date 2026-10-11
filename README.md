@@ -6,7 +6,8 @@ libraries. The mpv and libplacebo forks remain the source of truth.
 
 An opt-in [Vulkan desktop experiment](experiments/vulkan/README.md) has separate
 source locks and work directories. It does not replace this maintained
-OpenGL/GLES combination or promise a stable Vulkan ABI.
+OpenGL/GLES combination. Its Vulkan v1 ABI is stable within the downstream mpv
+fork, not an upstream API release or a claim of all-platform acceptance.
 
 ## Pinned sources
 
