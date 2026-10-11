@@ -17,7 +17,7 @@ the new candidate. Local validation and remote CI are recorded separately.
 ## Source and interface identity
 
 - mpv: `089d895f48c9aa67d9a3cffeb563c8cd1188427f`
-- libplacebo: `16140c6d4ee129d79746c89755e0631e065d423c`
+- libplacebo: `b7779734692e4b6fbd72987976aa11aad51f7ee7`
 - Header: the candidate installation's `include/mpv/render_vk.h`, not a copied
   header or a source-tree include fallback. Draft version remains 1.
   Check `mpv_client_api_version() >= MPV_MAKE_VERSION(2, 7)` before Vulkan use,

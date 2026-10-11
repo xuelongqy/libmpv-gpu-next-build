@@ -3,10 +3,12 @@
 Status: the 2026-10-06 closure candidate is checked locally with mpv
 `089d895f48c9aa67d9a3cffeb563c8cd1188427f` and libplacebo
 `16140c6d4ee129d79746c89755e0631e065d423c`. The 2026-10-11 Windows TV recheck
-passes, including native 4K HDR playback. The isolated six-line libplacebo
-candidate below resolves the iOS raw-screenshot discrepancy; it is not yet
-committed or part of the source lock. Closure is still incomplete: iOS hardware
-background recovery reproduces without Render API. The serialized client-only
+passes, including native 4K HDR playback. The six-line libplacebo screenshot
+fix below is now published as `b7779734692e4b6fbd72987976aa11aad51f7ee7`
+and included in the experimental source lock. The screenshot-fix checks used
+the identical pre-publication candidate; this is not a new full-platform run.
+Closure is still incomplete: iOS hardware background recovery reproduces without
+Render API. The serialized client-only
 recovery below now passes the targeted functional checks, including paused
 SDR/PQ frames; iOS validation layers remain unavailable.
 Historical results and remote CI do not replace per-platform current-combination
