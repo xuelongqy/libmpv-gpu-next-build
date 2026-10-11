@@ -1,0 +1,85 @@
+diff --git a/layers/core_checks/cc_device_memory.cpp b/layers/core_checks/cc_device_memory.cpp
+index 0b38d449c..390f068fe 100644
+--- a/layers/core_checks/cc_device_memory.cpp
++++ b/layers/core_checks/cc_device_memory.cpp
+@@ -74,6 +74,12 @@ bool CoreChecks::VerifyBoundMemoryIsDeviceVisible(const vvl::DeviceMemory* memor
+ // Check to see if memory was ever bound to this image
+ bool CoreChecks::ValidateMemoryIsBoundToImage(const LogObjectList& objlist, const vvl::Image& image_state, const Location& loc,
+                                               const char* vuid) const {
++#ifdef VK_USE_PLATFORM_METAL_EXT
++    // Imported Metal textures already have backing memory; no vkBindImageMemory is required.
++    if (vku::FindStructInPNextChain<VkImportMetalTextureInfoEXT>(image_state.GetPNext())) {
++        return false;
++    }
++#endif
+     bool result = false;
+     if (image_state.create_from_swapchain != VK_NULL_HANDLE) {
+         if (!image_state.bind_swapchain) {
+diff --git a/layers/sync/sync_image.cpp b/layers/sync/sync_image.cpp
+index 825737a7f..10120f13b 100644
+--- a/layers/sync/sync_image.cpp
++++ b/layers/sync/sync_image.cpp
+@@ -25,6 +25,10 @@ void ImageSubState::SetSwapchain(vvl::Swapchain& swapchain) { SetOpaqueBaseAddre
+ 
+ bool ImageSubState::IsSimplyBound() const {
+     bool simple = SimpleBinding(base) || base.IsSwapchainImage() || base.bind_swapchain;
++#ifdef VK_USE_PLATFORM_METAL_EXT
++    const auto* import = vku::FindStructInPNextChain<VkImportMetalTextureInfoEXT>(base.GetPNext());
++    simple |= import && import->mtlTexture && opaque_base_address_;
++#endif
+     return simple;
+ }
+ 
+@@ -46,6 +50,18 @@ void ImageSubState::SetOpaqueBaseAddress(vvl::DeviceState& dev_data) {
+     } else {
+         base.AnyImageAliasOf(get_opaque_base);
+     }
++#ifdef VK_USE_PLATFORM_METAL_EXT
++    const auto* import = vku::FindStructInPNextChain<VkImportMetalTextureInfoEXT>(base.GetPNext());
++    if (!opaque_base && import && import->mtlTexture) {
++        // Metal imports have no VkDeviceMemory binding through which to find aliases.
++        // shortcut: only identical image descriptions share ranges; texture views need subresource-aware alias tracking.
++        dev_data.AnyOf<vvl::Image>([&](const vvl::Image& other) {
++            const auto* other_import = vku::FindStructInPNextChain<VkImportMetalTextureInfoEXT>(other.GetPNext());
++            return other_import && other_import->mtlTexture == import->mtlTexture && other_import->plane == import->plane &&
++                   base.CompareCreateInfo(other) && get_opaque_base(other) && opaque_base;
++        });
++    }
++#endif
+     if (!opaque_base) {
+         // The size of the opaque range is based on the SyncVal *internal* representation of the tiled resource, unrelated
+         // to the acutal size of the the resource in device memory. If differing representations become possible, the allocated
+diff --git a/layers/sync/sync_validation.cpp b/layers/sync/sync_validation.cpp
+index f6c32dcbd..9cdab70eb 100644
+--- a/layers/sync/sync_validation.cpp
++++ b/layers/sync/sync_validation.cpp
+@@ -334,6 +334,12 @@ void SyncValidator::Created(vvl::Swapchain& swapchain_state) {
+ 
+ void SyncValidator::Created(vvl::Image& image_state) {
+     image_state.SetSubState(container_type, std::make_unique<ImageSubState>(image_state));
++#ifdef VK_USE_PLATFORM_METAL_EXT
++    const auto* import = vku::FindStructInPNextChain<VkImportMetalTextureInfoEXT>(image_state.GetPNext());
++    if (import && import->mtlTexture) {
++        SubState(image_state).SetOpaqueBaseAddress(*device_state);
++    }
++#endif
+ }
+ 
+ void SyncValidator::PreCallRecordDestroyBuffer(VkDevice device, VkBuffer buffer, const VkAllocationCallbacks* pAllocator,
+@@ -351,6 +357,16 @@ void SyncValidator::PreCallRecordDestroyBuffer(VkDevice device, VkBuffer buffer,
+ void SyncValidator::PreCallRecordDestroyImage(VkDevice device, VkImage image, const VkAllocationCallbacks* pAllocator,
+                                               const RecordObject& record_obj) {
+     if (const auto image_state = Get<vvl::Image>(image)) {
++#ifdef VK_USE_PLATFORM_METAL_EXT
++        if (vku::FindStructInPNextChain<VkImportMetalTextureInfoEXT>(image_state->GetPNext()) &&
++            device_state->AnyOf<vvl::Image>([&](const vvl::Image& other) {
++                return &other != image_state.get() &&
++                       SubState(other).GetResourceBaseAddress() == SubState(*image_state).GetResourceBaseAddress();
++            })) {
++            // Destroying one import must not erase accesses through a surviving alias.
++            return;
++        }
++#endif
+         for (const auto& batch : GetAllQueueBatchContexts()) {
+             const auto& sub_state = SubState(*image_state);
+             ImageRangeGen range_gen = sub_state.MakeImageRangeGen(image_state->full_range, false);

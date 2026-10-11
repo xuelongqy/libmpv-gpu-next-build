@@ -5,8 +5,17 @@ OpenGL/GLES source combination in the root `versions.env`. There are no binary
 releases or claims of a stable Vulkan ABI.
 
 The [iOS device smoke](ios/README.md) is separate from the desktop entrypoints.
-Its validation-loader and native-resolution screenshot limitations are recorded
-in [the current validation results](VALIDATION.md), not counted as passes.
+The tested iPhone's screenshot and background-recovery regressions pass with the
+remote-locked combination. The opt-in validation runs include SDR/PQ and hardware
+recovery. The packaged validation-layer candidate passes imported-texture
+WAW/RAW negative controls and targeted direct-mapping regressions; the official
+layer still misses these hazards. Full cross-API synchronization remains outside
+that result. See [the opt-in build/probe](validation/README.md),
+[the packaged checks](VALIDATION.md#2026-10-11-packaged-metal-import-validation),
+[the candidate checks](VALIDATION.md#2026-10-11-imported-metal-synchronization-candidate),
+[the historical review](VALIDATION.md#2026-10-11-ios-validation-review)
+and [the remote-locked regression](VALIDATION.md#2026-10-11-remote-locked-ios-regression),
+including retained historical failures.
 
 The locked API-packaging snapshot uses downstream client API 2.7 and installs
 `render_vk.h`, even when the library is built without Vulkan. This is not an
@@ -28,9 +37,10 @@ the new candidate. Local validation and remote CI are recorded separately.
   Including this header requires Vulkan SDK headers even if the library itself
   was built without Vulkan; other Render API headers do not gain that dependency.
 
-The source locks name commits published to the configured forks. Local validation
-used an explicit `SOURCE_LOCK_FILE` naming clean local repositories with these
-same full SHAs; those results are not a remote fresh-clone pass. Checkout verifies
+The source locks name commits published to the configured forks. The 2026-10-11
+Linux software-Vulkan CI and targeted iOS regression use fresh remote checkouts
+of this combination. Earlier local-source checks remain historical evidence,
+not remote fresh-clone passes or new full-platform acceptance. Checkout verifies
 the exact full SHA and refuses dirty dependency trees; do not silently fall back
 to another revision.
 
@@ -113,13 +123,11 @@ Missing Metal import support or a decoder fallback is not a successful direct
 mapping test. This avoids application CPU readback, not necessarily all internal
 driver copies. It does not enable other platforms or a native Metal Render API.
 
-The macOS `bin/test-metal-import` probe needs no mpv or libplacebo. It imports
-R16/RG16 textures and checks that ordinary unbound and export-only images still
-produce their expected validation errors. The installed 1.4.357 layer currently
-also reports imported Metal images as unbound. A private, matching-version layer
-fix is required for this validation run; do not filter errors or bind dummy memory.
-Use explicit layer/library discovery paths and retain their hashes. The two
-negative-control errors are intentional only in this probe, not in playback.
+The macOS `bin/test-metal-import` probe needs no mpv or libplacebo. It checks
+R16/RG16 imports, WAW/RAW and alias tracking, invalid views and ordinary
+unbound/export-only images. Use the [packaged matching-version layer](validation/README.md),
+explicit library paths and hashes. Its 11 negative-control errors are intentional
+only in this probe; normal playback still requires zero validation errors.
 
 The default test window is 960x540, not a native-4K playback test. Use
 `--fullscreen` instead of `--window` for desktop fullscreen on the selected

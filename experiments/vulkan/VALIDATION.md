@@ -1,18 +1,25 @@
 # Delivery validation
 
-Status: the 2026-10-06 closure candidate is checked locally with mpv
+Status: the latest remote-locked combination passes Linux software-Vulkan CI
+and the targeted iOS screenshot/background-recovery regression below. The
+opt-in iOS PQ/hardware/background checks also pass with the private Metal-import
+validation-layer correction described below, not with the unmodified layer.
+The official layer misses synchronization coverage for imported Metal textures;
+the packaged candidate below restores the tested Vulkan access tracking, not
+full cross-API synchronization acceptance.
+Historical failures remain; older platform results are not current-combination
+passes, and no all-device acceptance is claimed.
+
+Historical baseline: the 2026-10-06 closure candidate is checked locally with mpv
 `089d895f48c9aa67d9a3cffeb563c8cd1188427f` and libplacebo
 `16140c6d4ee129d79746c89755e0631e065d423c`. The 2026-10-11 Windows TV recheck
 passes, including native 4K HDR playback. The six-line libplacebo screenshot
 fix below is now published as `b7779734692e4b6fbd72987976aa11aad51f7ee7`
 and included in the experimental source lock. The screenshot-fix checks used
 the identical pre-publication candidate; this is not a new full-platform run.
-Closure is still incomplete: iOS hardware background recovery reproduces without
-Render API. The serialized client-only
-recovery below now passes the targeted functional checks, including paused
-SDR/PQ frames; iOS validation layers remain unavailable.
-Historical results and remote CI do not replace per-platform current-combination
-acceptance.
+The original iOS hardware background failure also reproduces without Render API;
+the serialized client recovery and latest remote-locked regression below pass
+the tested recovery paths, not elimination of the OS session-invalidation trigger.
 
 Worktree base: `1245b72645002e9e284b42fcdd5588d06abc321e`, branch
 `feat/vulkan-experimental-delivery`. This branch contains the experimental
@@ -23,6 +30,235 @@ Resolution qualification: the earlier desktop matrices and voiced runs below
 used a 960x540 render target unless explicitly noted. A 4K display mode and a
 4K decoded source did not make those native-4K rendering tests. The Windows
 native-4K follow-up is recorded separately below.
+
+## 2026-10-11 packaged Metal import validation
+
+The reviewed 38-line patch is now included in `validation/metal-import-sync.patch`
+on official VVL `e4786f7ce8f1319215eff0d938f4be4651cbb85d` (1.4.357).
+Patch SHA256: `546036f51c367cffa54c5258c8143902d5f2a904beba82e33bc4851b8e6b5dbc`.
+The opt-in iOS builder uses a separate patched checkout, retains the pristine
+official layer and rejects unrelated local edits. Default static builds, both
+production repositories and the root OpenGL source lock remain unchanged.
+[Build and probe commands](validation/README.md) use the same shared source on
+iOS/macOS and no media or libmpv for the independent negative probe.
+
+Review found one verification gap, not a production defect: the old surviving
+alias check only recorded commands and did not exercise queue-history cleanup.
+The shared probe now adds a submitted first-write/control case. Separate
+command buffers allow both first-use hazards to be reported; an independent
+ordinary bound-image WAW rejects the invalid second submit even if Metal alias
+tracking regresses. No invalid GPU dispatch or playback wait is added.
+
+| Reviewed evidence | Result |
+| --- | --- |
+| Enhanced probe, iOS and macOS | Each passes 19 checks, exactly 11 expected errors by type/count |
+| macOS mutation removing only alias-destruction protection | Expected failure: one queued WAW instead of two; guard still rejects submit |
+| Existing iOS final candidate playback/recovery | 13/13 normal cases, 20/20 comparisons, seven background transitions; validation zero |
+| Existing macOS direct SDR/PQ candidate | 10/10 cases, 20/20 comparisons, validation zero; matching baseline controls also pass |
+
+Playback callbacks still count every error without ID exceptions. Invalid-view,
+ordinary unbound/export-only and bound-image controls remain effective. This is
+evidence against concealing the tested errors, not proof about external
+Metal/VideoToolbox producer operations, IOSurface texture views or multiplanar
+aliases. Prior playback results are checked, not relabeled as a fresh full run.
+The initial queued-probe count failure is retained: VVL reports one hazard per
+first-use range; splitting the two controls fixes the probe, not the layer.
+
+Local review evidence: `.work/metal-sync-review-20261011.1hV1tD/REVIEW.md`.
+Migration uses fresh remote-pinned validation checkouts. The packaged macOS
+layer/probe build passes all 19 controls; its layer hash equals the reviewed
+`03222bbc0d6229467562bc5746283a3b6dd9e122648ccf1bd24a18981833426b`.
+The complete public iOS validation builder also succeeds; its unsigned layer
+hash equals the reviewed `5abe2916d6f0b97867579204ddf93a0661192c9c7fd2e05586704e68badd2999`.
+The iOS probe and normal validation/static apps compile and sign, with no
+libmpv dependency in the probe and no loader/layer dependency in the static app.
+Preparation reuse/dirty-checkout controls, runner self-checks, offline tools,
+syntax, ShellCheck and diff checks pass. The first probe link failure (missing
+direct Metal/Foundation links) is retained and corrected only in probe flags.
+An attempted delivery-probe launch is blocked by the locked phone, not counted
+as a pass; the reviewed iOS 19-control result above remains separate evidence.
+The newly built default static app is restored without clearing data; no test
+process remains. This migration does not claim a new full iOS playback matrix.
+Migration evidence: `.work/metal-sync-delivery-20261011.KHTm82/`.
+Historical failures and
+the earlier six-line-only coverage limitation remain in the following sections.
+No renderer/API change or new all-device/HDR-luminance acceptance is claimed.
+
+## 2026-10-11 imported Metal synchronization candidate
+
+A new private 1.4.357 layer candidate retains the six-line memory-bound
+correction and adds 32 lines in two synchronization files. Imported textures
+receive tracked ranges without a fake Vulkan memory binding; matching imports
+of the same Metal texture/plane share their range and surviving aliases keep it.
+No renderer, production source, lock or default static-build change.
+
+The final no-libmpv probe records but never submits deliberate invalid
+sequences. All 18 controls pass with exactly nine expected errors: missing
+barriers detect imported/bound WAW/RAW, matching duplicate imports detect WAW,
+distinct textures do not conflict, and tracking survives wrapper destruction.
+Invalid imported-view, ordinary unbound and export-only checks remain effective.
+The identical probe with the six-line-only layer still fails; historical
+failure logs and the earlier review below are retained.
+
+With the final candidate binary, direct VideoToolbox passes ten SDR/PQ
+offscreen/window cases, three playing background transitions, and four
+paused/stop transitions in two additional cases. All 13 normal cases report
+validation zero; all 20 comparisons pass (SDR max 0, PQ max one code).
+A fresh default static build passes SDR/raw screenshot (zero-code difference),
+rejects required validation with setup error 2, and is restored without data
+clearing. No test process remains. Offline/tool checks pass.
+
+This closes the reproduced recording-stage gap for the tested single-plane,
+matching-description imports, not complete cross-API synchronization. External
+Metal/VideoToolbox producer operations and IOSurface/texture-view/multiplanar
+alias tracking are not established. The public validation builder remains
+unmodified official-layer only. Local patch, identities, commands and results:
+`.work/ios-metal-sync-20261011.yKkLlR/REPORT.md`. Nothing is committed or pushed.
+
+## 2026-10-11 iOS validation review
+
+The six-line correction matches the [pinned Khronos specification](https://github.com/KhronosGroup/Vulkan-Docs/blob/v1.4.357/chapters/memory.adoc#L3914):
+valid imported Metal textures already provide backing memory. A fresh no-libmpv
+probe confirms that an invalid zero-mip view on an imported texture is still
+rejected with `VUID-VkImageSubresourceRange-levelCount-01720`. Ordinary unbound
+and export-only negative controls also remain effective.
+
+However, two image clears without the required barrier produce a WAW hazard
+for an ordinary bound image and **no synchronization error** for an imported
+Metal texture. The same probe with the unmodified official layer also misses
+the imported-image WAW error, while adding false unbound-memory errors. The
+six-line correction does not disable the synchronization checker; it also does
+not fix this pre-existing coverage gap. In layer 1.4.357, `SimpleBinding()`
+requires a tracked Vulkan memory binding, so `ImageSubState::MakeImageRangeGen()`
+returns an empty range for imported textures. The negative probe correctly
+returns failure; both original-layer and private-layer logs are retained.
+
+The functional/pixel results below remain valid, as do the reported error
+counts. They must not be read as complete synchronization acceptance for direct
+VideoToolbox imports. No production hazard is demonstrated by this probe.
+Fixing imported-image synchronization tracking is a separate validation-layer
+task; no additional layer or renderer change is made in this review.
+
+A fresh default static app builds without loader/layer frameworks or manifests,
+passes device SDR rendering with a zero-code raw-screenshot difference, and
+rejects `--require-validation` with setup error 2. It is restored without data
+clearing; no test process remains. Offline tools, runner self-check, syntax,
+ShellCheck and diff checks pass. All source locks, production sources and the
+original maintenance diff remain unchanged. Evidence:
+`.work/ios-validation-review-20261011.gonAzu/REVIEW.md`.
+
+## 2026-10-11 iOS PQ/hardware/background validation
+
+Uses the same remote-locked mpv/libplacebo archives and header as the regression
+below, on the same iPhone 14 Pro. No renderer, production source or client
+algorithm changes. New probes, packages and boundary instrumentation are private;
+the existing documentation diff and historical failures are retained.
+
+The no-libmpv Metal-import probe first reproduces two
+`VUID-VkImageViewCreateInfo-image-01020` errors with the original 1.4.357 layer.
+The matching-version six-line correction already used for macOS is applied only
+to a new private layer checkout: imported Metal textures have backing memory
+without `vkBindImageMemory`. With it, R16/RG16 import checks pass with zero errors;
+ordinary unbound and export-only controls still produce one expected error each.
+The no-libmpv buffer positive, parameter-negative and synchronization-negative
+probes also pass. This is not an unmodified official-layer pass; errors are not
+filtered, and playback uses an error-counting callback.
+
+| Targeted check | Result |
+| --- | --- |
+| Software/copy/direct x five media/output pairs x offscreen/window | 30/30 functional passes, validation enabled and reported errors 0; imported-texture synchronization coverage remains incomplete as described above |
+| Target/PNG plus SDR target/original GPU screenshot | 48/48 pass; SDR maximum 0 eight-bit codes, PQ maximum 1 ten-bit code |
+| PQ playing background/foreground | Copy/direct each pass 10 cycles and 60 active seconds; software passes 3 cycles and 40 active seconds. Same PID, progressing A/V, expected decoder and validation zero |
+| Paused/stop/background/reload: SDR software/copy/direct, PQ copy/direct | 5/5 pass, 10 real transitions, validation zero; paused PTS preserved, stopped targets black, reload/free complete. All 10 resumed-frame comparisons pass within one code |
+| Default static compatibility | Restored unmodified static app passes SDR; requiring validation returns setup error 2. Its raw GPU screenshot differs by 0 codes |
+
+Total: 38 normal validation cases, 58 pixel comparisons and 33 real background
+transitions pass without relaxed thresholds. VideoToolbox invalid-session
+callbacks (-12903) still occur on background entry; all hardware returns recover
+at the saved PTS without missing-reference errors (-17694) or software fallback.
+The OS invalidation trigger is not fixed. Expected errors occur only in the
+isolated negative probes; MoltenVK warnings remain visible.
+
+Loader and driver are unchanged; actual loaded framework paths and library,
+client, header and private layer-patch hashes are retained. Initial probe build
+failure and the original layer failure are not overwritten. Offline tools,
+runner self-check, Bash syntax, scoped ShellCheck and diff checks pass. Default
+static app is restored without clearing data; no test process remains.
+No new physical HDR/audio judgment, other-device, scRGB/tvOS or full sanitizer
+acceptance is claimed. Production sources, both source locks, tags and the
+original maintenance diff remain unchanged; no commit or push. Complete local
+evidence: `.work/ios-validation-hw-pq-20261011.Yqq8n1/REPORT.md`.
+
+## 2026-10-11 iOS validation loading
+
+Only the validation environment/client changes. The existing remote-locked
+mpv/libplacebo archives and matching header are reused read-only; production
+sources, source locks and stable OpenGL remain unchanged. SDK iPhoneOS 27.0,
+arm64 iOS 15.0 target, tested on iPhone 14 Pro / iOS 26.6.2 / Apple A16.
+
+The isolated package uses Vulkan headers `e3b1eec08173d6b825cd3ac88c885a63b621504a`,
+loader `5f157b62e333c63260d05d81bf66faa216ab0fb8` and Khronos validation
+`e4786f7ce8f1319215eff0d938f4be4651cbb85d`, all version 1.4.357. The pinned
+MoltenVK 1.4.2 archive is linked into a loadable driver framework. Signed app
+frameworks, driver/layer manifests and actual loaded paths are checked; the
+client and libmpv use the same loader `vkGetInstanceProcAddr` dispatch chain.
+
+| Targeted check | Result |
+| --- | --- |
+| No-libmpv create/submit/destroy probe | Pass, zero validation errors; binary does not link libmpv |
+| Controlled zero-size buffer and missing-barrier negative probes | Each captures exactly its expected parameter VUID / synchronization WAW error; invalid calls are aborted before the driver |
+| Software SDR offscreen and window | Pass, synchronization validation enabled, zero errors; includes pre-load/stop rendering, screenshots, target retirement and teardown |
+| Actual target vs PNG/raw GPU screenshot/previous static target | Six comparisons pass, maximum difference 0 eight-bit codes; threshold remains one code |
+| Default static build | SDR still passes without validation; requiring validation correctly returns setup error 2 |
+
+The initial probe's incomplete manifest fails instance creation; its log is
+retained, and the corrected package passes. An initial package-generation syntax
+error and a comparison interpreter missing Pillow also remain recorded; fresh
+retries succeed using the corrected script and existing comparison environment.
+MoltenVK primitive-restart warnings are retained, not filtered or counted as
+zero-warning results. No renderer or driver source changes are made.
+
+This closes loader/layer loading, not the full iOS validation matrix. PQ,
+hardware decode/Metal import and background recovery remain unvalidated by this
+round. No audio/physical HDR or other-device acceptance is claimed. Local probe
+source, package/library identities, commands, failures and results:
+`.work/ios-validation-20261011.r9wNRT/REPORT.md`.
+
+## 2026-10-11 remote-locked iOS regression
+
+Fresh fork checkouts at delivery `cb9e4d471e294515fe291da2cfd2d2b791af7580`
+use mpv `089d895f48c9aa67d9a3cffeb563c8cd1188427f` and libplacebo
+`b7779734692e4b6fbd72987976aa11aad51f7ee7`. Both libraries are rebuilt in a
+new private prefix with the matching header; no old mpv/libplacebo archive or
+local-source override is used. Dependency archive digests are checked, and the
+clean pinned FFmpeg source is reused read-only and rebuilt.
+
+[CI run 38124530050](https://github.com/xuelongqy/libmpv-gpu-next-build/actions/runs/38124530050)
+passes at this delivery commit, including library tests and software-Vulkan
+checks using these exact sources. It does not cover iOS or a physical Linux GPU.
+The separate wired iPhone 14 Pro run uses iOS 26.6.2 and Apple A16 Vulkan 1.2.357.
+
+| Targeted iOS check | Result |
+| --- | --- |
+| SDR→SDR, HDR10→SDR/PQ, DV→SDR/PQ; software/copy/direct x offscreen/window | 30/30 complete; actual decoder matches the request |
+| Target/PNG, plus SDR target/original GPU raw screenshot | 48/48 pairs pass; SDR maximum 0 eight-bit codes, PQ maximum 1 ten-bit code |
+| PQ playing background/foreground | Copy/direct each pass 10 cycles and 60 active seconds, with exact hardware restart PTS; software passes 3 cycles and 40 seconds. All retain the same PID, advancing A/V and expected decoder |
+| Paused/stop/background/reload: SDR software/copy/direct, PQ copy/direct | 5/5 checks and 10 transitions pass; paused PTS retained, stopped targets black, reload/free complete. All 10 resumed-frame/GPU comparisons pass within one SDR/PQ code |
+
+Total: 58 pixel comparisons and 33 real background transitions pass without
+relaxing thresholds. Paused/stop checks reuse private client instrumentation
+against the same archives; normal committed client code runs the static and
+playing checks and is restored afterwards. Cases run serially to completion.
+
+An initial disconnected-device installation and a pre-app socket-EOF launch
+fail; both logs remain, and fresh retries pass. VideoToolbox invalid-session
+callbacks (-12903) still occur on leaving the foreground, but every hardware
+return recovers without missing-reference errors (-17694) or final soft fallback.
+iOS validation remains **not enabled**; no new physical listening, luminance,
+other-platform or full sanitizer acceptance is claimed. No test process remains.
+Source locks, stable OpenGL, production sources and other workspaces are unchanged.
+Local identities, commands, retries and complete evidence:
+`.work/ios-remote-locked-20261011.S4eBwA/REPORT.md`.
 
 ## 2026-10-11 Windows TV recheck
 

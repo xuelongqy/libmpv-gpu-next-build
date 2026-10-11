@@ -87,6 +87,52 @@ with tempfile.TemporaryDirectory(prefix="vulkan-tools-") as directory:
             target.unlink()
         else:
             run(["git", "-C", str(dest), "restore", "--staged", "--worktree", "file"])
+    # Test exact-patch reuse in a disposable checkout, without network or VVL dependencies.
+    validation = temp/"validation"
+    validation.mkdir()
+    prepare = (here/"validation/prepare.sh").read_text().replace(
+        "e4786f7ce8f1319215eff0d938f4be4651cbb85d", commit)
+    (validation/"prepare.sh").write_text(prepare)
+    (temp/"common.sh").write_text('''
+        experiment_dir="$TEST_EXPERIMENT"
+        require_command() { command -v "$1" >/dev/null; }
+        ensure_checkout() {
+            if [[ ! -d $4/.git ]]; then git clone --no-hardlinks "$TEST_ORIGIN" "$4"; fi
+            [[ -z $(git -C "$4" status --porcelain) ]] || exit 2
+        }
+    ''')
+    (origin/"file").write_text("patched\n")
+    patch_text = run(["git", "-C", str(origin), "diff", "--binary"]).stdout
+    (origin/"file").write_text("original\n")
+    (validation/"metal-import-sync.patch").write_text(patch_text)
+    candidate = temp/"validation-work"
+    def prepare_layer():
+        return run(["bash", str(validation/"prepare.sh"), str(candidate)],
+                   env={**os.environ, "TEST_EXPERIMENT": str(temp), "TEST_ORIGIN": str(origin)})
+    assert prepare_layer().returncode == 0
+    assert prepare_layer().returncode == 0
+    patched = candidate/"layers-metal-import"
+    assert (patched/"file").read_text() == "patched\n"
+    assert (candidate/"layers/file").read_text() == "original\n"
+    for kind in ("unstaged", "staged", "untracked"):
+        target = patched/("extra" if kind == "untracked" else "file")
+        target.write_text("keep me\n")
+        if kind == "staged":
+            assert run(["git", "-C", str(patched), "add", "file"]).returncode == 0
+        before = run(["git", "-C", str(patched), "status", "--porcelain"]).stdout
+        assert prepare_layer().returncode == 2
+        assert target.read_text() == "keep me\n"
+        assert run(["git", "-C", str(patched), "status", "--porcelain"]).stdout == before
+        if kind == "untracked":
+            target.unlink()
+        else:
+            assert run(["git", "-C", str(patched), "restore", "--staged", "file"]).returncode == 0
+            target.write_text("patched\n")
+    assert run(["git", "-C", str(patched), "add", "file"]).returncode == 0
+    assert run(["git", "-C", str(patched), "-c", "user.name=Fixture", "-c",
+                "user.email=fixture@example.invalid", "commit", "-m", "wrong base"]).returncode == 0
+    assert prepare_layer().returncode == 2
+    print("METAL_LAYER_PREPARE=PASS (reuse and dirty/wrong-base rejection)")
     for name, code in (("pass", 0), ("unsupported", 77), ("fail", 1), ("timeout", 124)):
         command = [sys.executable, "-c", "import time; time.sleep(30)" if code == 124 else f"raise SystemExit({code})"]
         prefix = temp/name

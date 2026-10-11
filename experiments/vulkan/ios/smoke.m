@@ -10,6 +10,10 @@
 #include <math.h>
 #include <unistd.h>
 #include <string.h>
+#ifdef IOS_VULKAN_LOADER
+#include <dlfcn.h>
+#include <mach-o/dyld.h>
+#endif
 
 #define CHECK(x) do { if (!(x)) { fprintf(stderr, "FAIL line=%d: %s\n", __LINE__, #x); abort(); } } while (0)
 #define VK(x) do { VkResult r = (x); if (r != VK_SUCCESS) { fprintf(stderr, "VK_FAIL line=%d result=%d\n", __LINE__, r); abort(); } } while (0)
@@ -18,6 +22,18 @@ static pthread_mutex_t ui_mutex = PTHREAD_MUTEX_INITIALIZER;
 static bool ui_active;
 static bool ui_backgrounded;
 static uint32_t ui_width, ui_height;
+static atomic_uint validation_errors;
+
+static VKAPI_ATTR VkBool32 VKAPI_CALL validation_message(VkDebugUtilsMessageSeverityFlagBitsEXT severity,
+    VkDebugUtilsMessageTypeFlagsEXT type, const VkDebugUtilsMessengerCallbackDataEXT *data, void *ctx)
+{
+    (void)type; (void)ctx;
+    fprintf(stderr, "VALIDATION severity=%u id=%s: %s\n", severity,
+        data->pMessageIdName ? data->pMessageIdName : "", data->pMessage);
+    if (severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT)
+        atomic_fetch_add(&validation_errors, 1);
+    return VK_FALSE;
+}
 
 struct test {
     VkInstance instance;
@@ -557,12 +573,30 @@ static void run(CAMetalLayer *layer, unsigned context)
             stringByAppendingPathComponent:file_name];
     }
     CHECK(file);
-    fprintf(stderr, "IOS_SMOKE MEDIA=%s WINDOW=%d OUTPUT=%s VALIDATION=NOT_ENABLED\n", media.UTF8String, window, output.UTF8String);
+    fprintf(stderr, "IOS_SMOKE MEDIA=%s WINDOW=%d OUTPUT=%s VALIDATION=%s\n", media.UTF8String, window, output.UTF8String,
+        require_validation ? "REQUESTED" : "NOT_ENABLED");
     uint32_t layer_count = 0;
     VK(vkEnumerateInstanceLayerProperties(&layer_count, NULL));
-    fprintf(stderr, "VULKAN_LAYER_COUNT=%u VALIDATION=NOT_ENABLED\n", layer_count);
-    if (require_validation) { fprintf(stderr, "IOS_SETUP_ERROR=matching_validation_loader_required\n"); exit(2); }
-    const char *instance_ext[4] = {VK_KHR_SURFACE_EXTENSION_NAME, VK_EXT_METAL_SURFACE_EXTENSION_NAME};
+    fprintf(stderr, "VULKAN_LAYER_COUNT=%u\n", layer_count);
+    const char *validation_layer = "VK_LAYER_KHRONOS_validation";
+    if (require_validation) {
+#ifndef IOS_VULKAN_LOADER
+        fprintf(stderr, "IOS_SETUP_ERROR=matching_validation_loader_required\n"); exit(2);
+#else
+        if (!layer_count) { fprintf(stderr, "IOS_SETUP_ERROR=validation_layer_missing\n"); exit(2); }
+        VkLayerProperties *layers = calloc(layer_count, sizeof(*layers)); CHECK(layers);
+        VK(vkEnumerateInstanceLayerProperties(&layer_count, layers));
+        bool found = false;
+        for (uint32_t i = 0; i < layer_count; i++) {
+            fprintf(stderr, "LAYER=%s API=%u IMPLEMENTATION=%u\n", layers[i].layerName, layers[i].specVersion, layers[i].implementationVersion);
+            found |= !strcmp(layers[i].layerName, validation_layer);
+        }
+        free(layers);
+        if (!found) { fprintf(stderr, "IOS_SETUP_ERROR=validation_layer_missing\n"); exit(2); }
+        atomic_store(&validation_errors, 0);
+#endif
+    }
+    const char *instance_ext[6] = {VK_KHR_SURFACE_EXTENSION_NAME, VK_EXT_METAL_SURFACE_EXTENSION_NAME};
     uint32_t instance_count = 0, enabled_instance_count = 2;
     VK(vkEnumerateInstanceExtensionProperties(NULL, &instance_count, NULL));
     VkExtensionProperties *instance_properties = calloc(instance_count, sizeof(*instance_properties)); CHECK(instance_properties);
@@ -586,7 +620,30 @@ static void run(CAMetalLayer *layer, unsigned context)
         .exportObjectType = VK_EXPORT_METAL_OBJECT_TYPE_METAL_DEVICE_BIT_EXT};
     bool direct = !strcmp(t.hwdec, "videotoolbox");
     if (direct) instance.pNext = &export_device;
+    VkValidationFeatureEnableEXT enable = VK_VALIDATION_FEATURE_ENABLE_SYNCHRONIZATION_VALIDATION_EXT;
+    VkDebugUtilsMessengerCreateInfoEXT debug = {.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
+        .pNext = instance.pNext, .messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT,
+        .messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT,
+        .pfnUserCallback = validation_message};
+    VkValidationFeaturesEXT validation = {.sType = VK_STRUCTURE_TYPE_VALIDATION_FEATURES_EXT,
+        .pNext = &debug, .enabledValidationFeatureCount = 1, .pEnabledValidationFeatures = &enable};
+    VkDebugUtilsMessengerEXT messenger = VK_NULL_HANDLE;
+    PFN_vkDestroyDebugUtilsMessengerEXT destroy_debug = NULL;
+    if (require_validation) {
+        instance_ext[enabled_instance_count++] = VK_EXT_DEBUG_UTILS_EXTENSION_NAME;
+        instance_ext[enabled_instance_count++] = VK_EXT_VALIDATION_FEATURES_EXTENSION_NAME;
+        instance.enabledExtensionCount = enabled_instance_count;
+        instance.enabledLayerCount = 1; instance.ppEnabledLayerNames = &validation_layer;
+        instance.pNext = &validation;
+    }
     VK(vkCreateInstance(&instance, NULL, &t.instance));
+    if (require_validation) {
+        PFN_vkCreateDebugUtilsMessengerEXT create_debug = (void *)vkGetInstanceProcAddr(t.instance, "vkCreateDebugUtilsMessengerEXT");
+        destroy_debug = (void *)vkGetInstanceProcAddr(t.instance, "vkDestroyDebugUtilsMessengerEXT");
+        CHECK(create_debug && destroy_debug);
+        debug.pNext = NULL;
+        VK(create_debug(t.instance, &debug, NULL, &messenger));
+    }
     uint32_t count = 0;
     VK(vkEnumeratePhysicalDevices(t.instance, &count, NULL)); CHECK(count);
     VkPhysicalDevice *devices = calloc(count, sizeof(*devices)); CHECK(devices);
@@ -632,6 +689,7 @@ static void run(CAMetalLayer *layer, unsigned context)
         if (!supported) {
             fprintf(stderr, "IOS_UNSUPPORTED=metal_objects\n");
             if (t.surface) vkDestroySurfaceKHR(t.instance, t.surface, NULL);
+            if (messenger) destroy_debug(t.instance, messenger, NULL);
             vkDestroyInstance(t.instance, NULL);
             pthread_mutex_destroy(&t.mutex);
             exit(77);
@@ -646,6 +704,13 @@ static void run(CAMetalLayer *layer, unsigned context)
         .enabledExtensionCount = ext_count, .ppEnabledExtensionNames = ext};
     VK(vkCreateDevice(t.physical, &device, NULL, &t.device));
     vkGetDeviceQueue(t.device, t.family, 0, &t.queue);
+#ifdef IOS_VULKAN_LOADER
+    for (uint32_t i = 0; i < _dyld_image_count(); i++) {
+        const char *name = _dyld_get_image_name(i);
+        if (strstr(name, "vulkan.framework") || strstr(name, "khronos_validation") || strstr(name, "MoltenVK.framework"))
+            fprintf(stderr, "LOADED_LIBRARY=%s\n", name);
+    }
+#endif
     t.mpv = mpv_create(); CHECK(t.mpv);
     if (direct) CHECK(mpv_set_option_string(t.mpv, "gpu-hwdec-interop", "videotoolbox") == 0);
     const char *opts[][2] = {{"config","no"},{"vo","libmpv"},{"hwdec",t.hwdec},{"audio",t.play_seconds ? "auto" : "no"},
@@ -828,7 +893,13 @@ static void run(CAMetalLayer *layer, unsigned context)
     vkDestroySemaphore(t.device, t.acquire, NULL); vkDestroySemaphore(t.device, t.complete, NULL);
     vkDestroyDevice(t.device, NULL);
     if (t.surface) vkDestroySurfaceKHR(t.instance, t.surface, NULL);
+    if (messenger) destroy_debug(t.instance, messenger, NULL);
     vkDestroyInstance(t.instance, NULL); pthread_mutex_destroy(&t.mutex);
+    if (require_validation) {
+        unsigned errors = atomic_load(&validation_errors);
+        fprintf(stderr, "IOS_VALIDATION=ENABLED ERRORS=%u SYNCHRONIZATION=ENABLED CASE_ID=%s\n", errors, case_id.UTF8String);
+        CHECK(!errors);
+    }
     fprintf(stderr, "IOS_RESULT=PASS MEDIA=%s MODE=%s CAPTURE=%s OUTPUT=%s HWDEC=%s CASE_ID=%s\n", media.UTF8String,
         window ? "window" : "offscreen", capture.UTF8String, output.UTF8String,t.hwdec,case_id.UTF8String);
     fflush(stderr);
@@ -898,5 +969,14 @@ static void run(CAMetalLayer *layer, unsigned context)
 
 int main(int argc, char **argv)
 {
-    @autoreleasepool { return UIApplicationMain(argc, argv, nil, NSStringFromClass(AppDelegate.class)); }
+    @autoreleasepool {
+#ifdef IOS_VULKAN_LOADER
+        NSString *bundle = NSBundle.mainBundle.bundlePath;
+        CHECK(setenv("VK_DRIVER_FILES", [[bundle stringByAppendingPathComponent:@"vulkan/icd.d/MoltenVK.json"] UTF8String], 1) == 0);
+        CHECK(setenv("VK_LAYER_PATH", [[bundle stringByAppendingPathComponent:@"vulkan/explicit_layer.d"] UTF8String], 1) == 0);
+        Dl_info library; CHECK(dladdr((void *)vkGetInstanceProcAddr, &library));
+        fprintf(stderr, "LOADER_PATH=%s\n", library.dli_fname);
+#endif
+        return UIApplicationMain(argc, argv, nil, NSStringFromClass(AppDelegate.class));
+    }
 }
