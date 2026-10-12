@@ -1,7 +1,10 @@
 # Apple native acceptance snapshot — 2026-10-12
 
-Source commits are recorded in `versions.env`. Both production commits contain
-the exact previously tested source, without new renderer changes. Historical
+Source identity is recorded in `versions.env`: mpv/libplacebo commits plus the
+official FFmpeg base, patch SHA-256 and accepted patched tree. The patch contains
+the exact FFmpeg changes previously committed as
+`0e15ad76751cf51f7d988c89a393c0c1d11c54a8`; that local commit is provenance,
+not a dependency to fetch. No renderer changes were introduced. Historical
 binaries were built before committing (their version strings say `dirty`);
 committing those trees is not a claim of newly rebuilt/retested binaries.
 `client/smoke.m` SHA256 is
@@ -84,3 +87,37 @@ offline checker cases and three invalid build-argument/source-SHA cases passed;
 the real long summaries are unchanged. Bash/Python syntax, ShellCheck and staged
 whitespace checks pass. No device reinstall, long-play rerun or CI run is implied.
 The existing newer-macOS-dylib and duplicate-static-library link warnings remain.
+
+## FFmpeg patch packaging check
+
+The checked-in format-patch is byte-for-byte the export of the accepted FFmpeg
+commit, including author and base information. Applying it to a separate clean
+checkout of official base `bf1b838f2ab88b4f8fd83443325c782ea0e0f7fa`
+reconstructed all 10,422 tracked files with tree
+`d4908008dca897816a37f2e1b8d9cc305e69f766`, identical to the accepted commit.
+The three changed files also matched byte-for-byte, and the caller's index hash
+was unchanged; no changes were staged or committed.
+
+Two clean preparations and ten rejection checks passed: wrong checkout SHA,
+repeat application, missing argument, source subdirectory, staged/unstaged/
+untracked edits, bad patch hash, bad expected tree and invalid lock. Each
+rejection returned nonzero and preserved source contents, HEAD and index.
+Bash syntax, ShellCheck and complete candidate-diff whitespace checks passed.
+These are offline packaging checks using local Git objects, not new remote
+checkout, CI, compilation or playback acceptance. Existing playback evidence
+and historical failures above remain unchanged.
+
+## Patch preparation review
+
+The initial preparation entry falsely accepted a local `libavcodec/version.h`
+edit hidden with `assume-unchanged`: Git status was empty, but the actual
+patched source did not match the accepted tree. The earlier success log is
+retained. Preparation now checks actual tracked files against the base using
+its existing temporary index before applying any source changes.
+
+Thirteen review checks passed: clean application and the ten original rejection
+paths, plus hidden edits using `assume-unchanged` and `skip-worktree`. Rejected
+inputs retained their bytes, index flags and staged state. Clean application
+still reproduced the accepted tree, with the caller's index hash unchanged.
+The patch/hash, client helper, stable locks and historical playback results
+remain unchanged. No new compilation or playback acceptance is implied.

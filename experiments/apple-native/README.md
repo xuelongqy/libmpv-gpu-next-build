@@ -2,9 +2,9 @@
 
 Local source snapshot for iOS/macOS native video and `auto` selection. It is
 separate from the stable OpenGL and Vulkan source locks. `versions.env` records
-the complete source commits; the mpv/FFmpeg commits are **local only**, so remote
-checkout and CI reproducibility are not yet accepted. FFmpeg's URL identifies
-the upstream base, not a published branch containing this patch.
+the mpv/libplacebo commits and an official FFmpeg commit plus a checked-in patch.
+No FFmpeg fork is required. The mpv commit is **local only**, so remote checkout
+and CI reproducibility are not yet accepted.
 
 ## Modes and ownership
 
@@ -42,9 +42,30 @@ fall back to software. No window or swapchain is created for the caller.
 The client sources are the tested private client, copied byte-for-byte. The
 compile-only helper removes private paths and signing information; it does not
 build dependencies, sign/install an app, copy media or change device settings.
-Build mpv/FFmpeg from the locked commits. Enable `apple-native` in mpv and the
-VideoToolbox HEVC hwaccel in FFmpeg; `vt_native_dv` remains default-off and is
-selected by native output, not by ordinary gpu-next decoding.
+Prepare a clean FFmpeg checkout before compiling dependencies:
+
+```sh
+source experiments/apple-native/versions.env
+git clone --no-checkout "$FFMPEG_REPOSITORY" .work/apple-native/ffmpeg
+git -C .work/apple-native/ffmpeg checkout --detach "$FFMPEG_COMMIT"
+bash experiments/apple-native/prepare-ffmpeg.sh .work/apple-native/ffmpeg
+```
+
+The preparation entry checks the full base SHA, patch SHA-256 and complete
+patched Git tree against the accepted source, then applies the patch without
+staging or committing. Dirty checkouts and mismatches fail; nothing is reset or
+cleaned. Actual tracked file contents are checked in a temporary index, including
+edits hidden from Git status. Run it once per fresh checkout, not again on an
+already-patched source.
+An existing checkout at the locked official commit can be passed instead.
+
+Build FFmpeg from that prepared source with the existing macOS/iOS configure
+options and VideoToolbox HEVC hwaccel enabled, then build the locked mpv with
+`apple-native` enabled against those libraries. The client helper remains
+compile-only and does not apply patches to an already-built dependency.
+`vt_native_dv` remains default-off and is selected by native output, not by
+ordinary gpu-next decoding. This packages the existing patch; no additional
+native-disable patch or decoding behavior change is introduced.
 
 ```sh
 bash experiments/apple-native/build-client.sh macos "$MPV_SOURCE" "$MPV_BUILD" \

@@ -1,0 +1,195 @@
+From 0e15ad76751cf51f7d988c89a393c0c1d11c54a8 Mon Sep 17 00:00:00 2001
+From: xuelongqy <xuelongqy@qq.com>
+Date: Mon, 12 Oct 2026 21:21:51 +0800
+Subject: [PATCH] avcodec/videotoolbox: add opt-in native Dolby Vision decoding
+
+Add the default-off vt_native_dv HEVC option for single-layer Profile 5. Configure dvh1/hvcC/dvcC, forward RPU NALs to VideoToolbox, and require per-frame HDR metadata propagation.
+
+Preserve native CoreVideo display attachments and frame-local decoder selection without changing default gpu-next decoding. Reject unsupported profiles; discard suffix RPUs from seek-skipped frames.
+
+Validated with FFmpeg/libmpv frame probes and macOS/iPhone native output. Developed and reviewed with AI assistance.
+---
+ libavcodec/hevc/hevcdec.c |  8 ++++-
+ libavcodec/hevc/hevcdec.h |  1 +
+ libavcodec/videotoolbox.c | 72 +++++++++++++++++++++++++++++++++++++--
+ 3 files changed, 77 insertions(+), 4 deletions(-)
+
+diff --git a/libavcodec/hevc/hevcdec.c b/libavcodec/hevc/hevcdec.c
+index 18e22f697e64269a40d7c97899a1572d45b83a73..b3a040356f3122ba9ce4243ce8662e113bd0727a 100644
+--- a/libavcodec/hevc/hevcdec.c
++++ b/libavcodec/hevc/hevcdec.c
+@@ -3599,7 +3599,9 @@ static int decode_nal_unit(HEVCContext *s, unsigned nal_idx)
+          s->nal_unit_type == HEVC_NAL_SPS ||
+          s->nal_unit_type == HEVC_NAL_PPS ||
+          s->nal_unit_type == HEVC_NAL_SEI_PREFIX ||
+-         s->nal_unit_type == HEVC_NAL_SEI_SUFFIX)) {
++         s->nal_unit_type == HEVC_NAL_SEI_SUFFIX ||
++         (s->nal_unit_type == HEVC_NAL_UNSPEC62 && s->vt_native_dv &&
++          s->avctx->pix_fmt == AV_PIX_FMT_VIDEOTOOLBOX))) {
+         ret = FF_HW_CALL(s->avctx, decode_params,
+                          nal->type, nal->raw_data, nal->raw_size);
+         if (ret < 0)
+@@ -4205,6 +4207,10 @@ static const AVOption options[] = {
+         AV_OPT_TYPE_BOOL, {.i64 = 0}, 0, 1, PAR },
+     { "strict-displaywin", "strictly apply default display window size", OFFSET(apply_defdispwin),
+         AV_OPT_TYPE_BOOL, {.i64 = 0}, 0, 1, PAR },
++#if CONFIG_HEVC_VIDEOTOOLBOX_HWACCEL
++    { "vt_native_dv", "Use native Dolby Vision output with VideoToolbox", OFFSET(vt_native_dv),
++        AV_OPT_TYPE_BOOL, {.i64 = 0}, 0, 1, PAR },
++#endif
+     { "view_ids", "Array of view IDs that should be decoded and output; a single -1 to decode all views",
+         .offset = OFFSET(view_ids), .type = AV_OPT_TYPE_INT | AV_OPT_TYPE_FLAG_ARRAY,
+         .min = -1, .max = INT_MAX, .flags = PAR },
+diff --git a/libavcodec/hevc/hevcdec.h b/libavcodec/hevc/hevcdec.h
+index 8394740c4b17c50516246c71dc53dd30957a718b..fc012927d49c593ca748e058422bc082232fcb91 100644
+--- a/libavcodec/hevc/hevcdec.h
++++ b/libavcodec/hevc/hevcdec.h
+@@ -560,6 +560,7 @@ typedef struct HEVCContext {
+     int is_nalff;           ///< this flag is != 0 if bitstream is encapsulated
+                             ///< as a format defined in 14496-15
+     int apply_defdispwin;
++    int vt_native_dv;
+ 
+     // multi-layer AVOptions
+     int         *view_ids;
+diff --git a/libavcodec/videotoolbox.c b/libavcodec/videotoolbox.c
+index 8df8a3214ce383681a3160466b00d8fe25a9dfa7..48a372260386383411e433641dd423d50fe2d158 100644
+--- a/libavcodec/videotoolbox.c
++++ b/libavcodec/videotoolbox.c
+@@ -63,10 +63,12 @@ enum { kCMVideoCodecType_AV1 = 'av01' };
+ #endif
+ 
+ #define VIDEOTOOLBOX_ESDS_EXTRADATA_PADDING  12
++#define VIDEOTOOLBOX_DOVI_CODEC MKBETAG('d', 'v', 'h', '1')
+ 
+ typedef struct VTHWFrame {
+     CVPixelBufferRef pixbuf;
+     AVBufferRef *hw_frames_ctx;
++    int native_dv;
+ } VTHWFrame;
+ 
+ static void videotoolbox_buffer_release(void *opaque, uint8_t *data)
+@@ -134,8 +136,11 @@ static int videotoolbox_postproc_frame(void *avctx, AVFrame *frame)
+     frame->crop_top = 0;
+     frame->crop_bottom = 0;
+ 
+-    if ((ret = av_vt_pixbuf_set_attachments(avctx, ref->pixbuf, frame)) < 0)
+-        return ret;
++    // The native DV decoder supplies its own display color/HDR attachments.
++    if (!ref->native_dv) {
++        if ((ret = av_vt_pixbuf_set_attachments(avctx, ref->pixbuf, frame)) < 0)
++            return ret;
++    }
+ 
+     frame->data[3] = (uint8_t*)ref->pixbuf;
+ 
+@@ -560,6 +565,8 @@ static int videotoolbox_buffer_create(AVCodecContext *avctx, AVFrame *frame)
+     }
+ 
+     ref = (VTHWFrame *)frame->buf[0]->data;
++    // Post-processing may run on a different frame-thread context.
++    ref->native_dv = videotoolbox_get_context(avctx)->cm_codec_type == VIDEOTOOLBOX_DOVI_CODEC;
+ 
+     if (ref->pixbuf)
+         CVPixelBufferRelease(ref->pixbuf);
+@@ -845,7 +852,7 @@ static CFDictionaryRef videotoolbox_decoder_config_create(CMVideoCodecType codec
+                                                                    &kCFTypeDictionaryValueCallBacks);
+ 
+     CFDictionarySetValue(config_info,
+-                        avctx->codec_id == AV_CODEC_ID_HEVC
++                        (avctx->codec_id == AV_CODEC_ID_HEVC && codec_type != VIDEOTOOLBOX_DOVI_CODEC)
+                         || avctx->codec_id == AV_CODEC_ID_PRORES
+                         || avctx->codec_id == AV_CODEC_ID_PRORES_RAW
+                             ?
+@@ -871,9 +878,31 @@ static CFDictionaryRef videotoolbox_decoder_config_create(CMVideoCodecType codec
+             CFDictionarySetValue(avc_info, CFSTR("avcC"), data);
+         break;
+     case kCMVideoCodecType_HEVC :
++    case VIDEOTOOLBOX_DOVI_CODEC:
+         data = ff_videotoolbox_hvcc_extradata_create(avctx);
+         if (data)
+             CFDictionarySetValue(avc_info, CFSTR("hvcC"), data);
++        if (codec_type == VIDEOTOOLBOX_DOVI_CODEC) {
++            const HEVCContext *h = avctx->priv_data;
++            const AVDOVIDecoderConfigurationRecord *cfg = &h->dovi_ctx.cfg;
++            uint8_t dvcc[24] = {
++                cfg->dv_version_major, cfg->dv_version_minor,
++                (cfg->dv_profile << 1) | (cfg->dv_level >> 5),
++                (cfg->dv_level << 3) | (cfg->rpu_present_flag << 2) |
++                (cfg->el_present_flag << 1) | cfg->bl_present_flag,
++                (cfg->dv_bl_signal_compatibility_id << 4) | (cfg->dv_md_compression << 2),
++            };
++            CFDataRef dovi = data ? CFDataCreate(kCFAllocatorDefault, dvcc, sizeof(dvcc)) : NULL;
++            if (!dovi) {
++                if (data)
++                    CFRelease(data);
++                CFRelease(avc_info);
++                CFRelease(config_info);
++                return NULL;
++            }
++            CFDictionarySetValue(avc_info, CFSTR("dvcC"), dovi);
++            CFRelease(dovi);
++        }
+         break;
+ #if CONFIG_VP9_VIDEOTOOLBOX_HWACCEL
+     case kCMVideoCodecType_VP9 :
+@@ -926,6 +955,23 @@ static int videotoolbox_start(AVCodecContext *avctx)
+         break;
+     case AV_CODEC_ID_HEVC :
+         videotoolbox->cm_codec_type = kCMVideoCodecType_HEVC;
++        {
++            const HEVCContext *h = avctx->priv_data;
++            const AVDOVIDecoderConfigurationRecord *cfg = &h->dovi_ctx.cfg;
++            if (h->vt_native_dv && cfg->dv_profile) {
++                if (cfg->dv_version_major != 1 || cfg->dv_profile != 5 ||
++                    cfg->dv_level > 63 || cfg->rpu_present_flag != 1 ||
++                    cfg->el_present_flag || cfg->bl_present_flag != 1 ||
++                    cfg->dv_bl_signal_compatibility_id ||
++                    cfg->dv_md_compression != AV_DOVI_COMPRESSION_NONE) {
++                    av_log(avctx, AV_LOG_ERROR, "Native VideoToolbox DV requires a single-layer Profile 5 stream.\n");
++                    return AVERROR(ENOSYS);
++                }
++                if (!__builtin_available(macOS 11.0, iOS 17.0, *))
++                    return AVERROR(ENOSYS);
++                videotoolbox->cm_codec_type = VIDEOTOOLBOX_DOVI_CODEC;
++            }
++        }
+         break;
+     case AV_CODEC_ID_MPEG1VIDEO :
+         videotoolbox->cm_codec_type = kCMVideoCodecType_MPEG1Video;
+@@ -1033,6 +1079,21 @@ static int videotoolbox_start(AVCodecContext *avctx)
+         av_log(avctx, AV_LOG_VERBOSE, "VideoToolbox reported invalid data.\n");
+         return AVERROR_INVALIDDATA;
+     case 0:
++        if (videotoolbox->cm_codec_type == VIDEOTOOLBOX_DOVI_CODEC) {
++            CFTypeRef propagate = NULL;
++            status = VTSessionSetProperty(videotoolbox->session,
++                kVTDecompressionPropertyKey_PropagatePerFrameHDRDisplayMetadata, kCFBooleanTrue);
++            if (!status)
++                status = VTSessionCopyProperty(videotoolbox->session,
++                    kVTDecompressionPropertyKey_PropagatePerFrameHDRDisplayMetadata, NULL, &propagate);
++            if (status || !propagate || !CFEqual(propagate, kCFBooleanTrue)) {
++                if (propagate)
++                    CFRelease(propagate);
++                av_log(avctx, AV_LOG_ERROR, "VideoToolbox DV metadata propagation is unavailable.\n");
++                return AVERROR(ENOSYS);
++            }
++            CFRelease(propagate);
++        }
+         return 0;
+     default:
+         av_log(avctx, AV_LOG_VERBOSE, "Unknown VideoToolbox session creation error %d\n", (int)status);
+@@ -1124,6 +1185,11 @@ static int videotoolbox_hevc_decode_params(AVCodecContext *avctx,
+                                            const uint8_t *buffer,
+                                            uint32_t size)
+ {
++    const HEVCContext *h = avctx->priv_data;
++
++    // Do not retain suffix RPUs from frames skipped during seeking.
++    if (type == HEVC_NAL_UNSPEC62 && !h->cur_frame)
++        return 0;
+     return videotoolbox_common_decode_slice(avctx, buffer, size);
+ }
+ 
+
+base-commit: bf1b838f2ab88b4f8fd83443325c782ea0e0f7fa
