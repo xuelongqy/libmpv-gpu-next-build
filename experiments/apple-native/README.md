@@ -1,10 +1,11 @@
 # Apple native output experiment
 
-Local source snapshot for iOS/macOS native video and `auto` selection. It is
+Source snapshot for iOS/macOS native video and `auto` selection. It is
 separate from the stable OpenGL and Vulkan source locks. `versions.env` records
 the mpv/libplacebo commits and an official FFmpeg commit plus a checked-in patch.
-No FFmpeg fork is required. The mpv commit is **local only**, so remote checkout
-and CI reproducibility are not yet accepted.
+No FFmpeg fork is required. The native mpv and delivery branches are published;
+remote-only clean builds and targeted Mac/iPhone regressions passed on
+2026-10-13 (see `ACCEPTANCE.md`). Native CI acceptance remains separate.
 
 ## Modes and ownership
 
@@ -60,10 +61,9 @@ The intentional FFmpeg patch can be reused only if its complete tree matches
 the lock, its index is unstaged, and no untracked source changes are present.
 This also rejects edits hidden with `assume-unchanged` or `skip-worktree`.
 
-Until the native mpv commit is published, preseed `$WORK_ROOT/src/mpv` using a
-clone of the accepted local checkout (or import its Git bundle). The entry still
-checks the full locked SHA; this is not remote reproducibility acceptance.
-Do not point it at an original development checkout.
+The locked commits are available from the repositories in `versions.env`.
+A fresh `WORK_ROOT` fetches them remotely; no preseeded local checkout or Git
+bundle is needed. Do not point it at an original development checkout.
 
 For a dependency build managed separately, prepare a clean FFmpeg checkout:
 

@@ -75,8 +75,9 @@ products are intentionally not tracked. The operator's private experiment keeps
 and all previous failed receipts. Long case prefixes are `macos-native-900`,
 `ios-native-900` (interrupted), `ios-native-stall-pts200` and `ios-native-900-r2`.
 Their case/report JSON and `media-long.sha256` can be supplied to `check-long.py`.
-Local-only commits are not remote/CI reproducibility evidence. Stable OpenGL,
-Vulkan locks, public API 2.8 and original maintenance workspaces remain unchanged.
+Historical local-only receipts do not establish remote or CI reproducibility;
+the later remote rebuild is recorded separately below. Stable OpenGL, Vulkan
+locks, public API 2.8 and original maintenance workspaces remain unchanged.
 
 ## Local packaging check
 
@@ -179,8 +180,9 @@ Evidence is retained privately under `.work/native-build-20261013.PZYqdm`:
 individual case/report pairs, installation/identity receipts and the rejected
 `default-ffmpeg-refusal` case. Client and library SHA-256 values are in its
 `evidence/identity.txt`. Original workspaces and all source locks are unchanged;
-the native mpv source was preseeded locally, so remote clean checkout and CI
-remain unaccepted. Tests exited and left no playback/audio process running.
+the native mpv source was preseeded locally, so that run did not establish remote
+clean checkout or CI acceptance. Tests exited and left no playback/audio process
+running.
 
 ## Entry review — 2026-10-13
 
@@ -205,3 +207,49 @@ Bash syntax, ShellCheck, Python checks and whitespace checks pass. Original
 workspaces and stable/experimental locks are unchanged. Earlier runtime and
 failure evidence above remains intact; no GPU, listening or long-play rerun is
 claimed. Review evidence is private under `.work/native-entry-review-20261013.hLW28k`.
+
+## Remote locked clean rebuild — 2026-10-13
+
+The native mpv branch was published at
+`feat/libmpv-native-output@8e68ec151e8011516160a1f353a6af67da9938e5`, and the
+delivery branch at
+`feat/apple-native-experimental-delivery@0604e5617af981f4a893797193c26e256d61208c`.
+Both remote tips were checked with `git ls-remote`. A fresh remote delivery clone
+built each platform in separate empty source/build/prefix directories, without
+local source seeding, Git bundles or previously compiled libraries.
+
+The source combination in `versions.env` is unchanged. FFmpeg came from the
+official repository plus the checked-in patch; its complete tree matched
+`d4908008dca897816a37f2e1b8d9cc305e69f766` before and after both builds. iOS
+reused only checksum-verified dependency downloads, not old archives built from
+the native sources. Mac and iOS builds exited zero in 313.102 and 279.640 seconds.
+Mac runtime dyld records resolved libmpv, FFmpeg and libplacebo to the new
+candidate. iPhone used freshly rebuilt static libraries and the newly installed
+app at bundle version `2026101302`; matching reports were copied from its container.
+
+| Targeted runtime check | macOS M2 Max | iPhone 14 Pro |
+| --- | --- | --- |
+| Native SDR / HDR10 / DV Profile 5 | 3/3 pass, actual VideoToolbox | 3/3 pass, actual VideoToolbox |
+| Explicit render SDR | Default old gpu / explicit gpu-next: 2/2 pass | Vulkan gpu-next: pass |
+| Auto SDR / DV / interpolation-triggered safe fallback | 3/3 pass | 3/3 pass |
+| Native parameter and lifecycle checks | Pass | Pass |
+
+All **9 Mac and 8 iOS cases** exited zero with zero render errors. Both platforms
+completed 20 context cycles, 20 seek/skip/screenshot-refusal cycles, nonempty OSD
+and stop/reload checks. Auto fallback recorded `native → render`, ordinary
+decoding (`hwdec-current=no`) and valid GPU target pixels. Each platform's five
+recorded DV display-layer inputs retained RPU attachments (**5/5**, not an
+all-frame metadata probe). The software default/render/auto/unsupported-native
+check and **8/8 offline patch/local-edit protection tests** also passed.
+
+Private evidence is under `.work/native-remote-20261013.qjdSKe`: `REPORT.md`,
+`build-*.json/log`, `targeted-*.json`, unique `remote-*` case/report pairs,
+`ios-install` receipts, `artifacts.sha256`, `inputs.sha256` and
+`runtime-loaded-libraries.txt`. Historical failed receipts remain intact.
+Tests exited with no remaining Mac/iPhone playback process.
+
+This accepts remote clean builds and silent targeted regressions, not native CI,
+a new long-play/listening run, the full Meson/pixel matrix or iOS Vulkan
+validation. Prior failures and unverified capabilities remain as recorded above.
+Renderer, stable source locks, tags and original workspaces are unchanged;
+no additional production-code changes were needed.
