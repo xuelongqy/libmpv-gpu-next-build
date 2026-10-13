@@ -95,8 +95,8 @@ jobs:
             placebo="$prefix/lib/libplacebo.a"
             test -s "$WORK_ROOT/ios-device/client/NativeSmoke.app/Info.plist"
             test ! -e "$WORK_ROOT/ios-device/client/NativeSmoke.app/embedded.mobileprovision"
-            xcrun lipo -verify_arch arm64 "$client"
-            xcrun lipo -verify_arch arm64 "$library"
+            xcrun lipo "$client" -verify_arch arm64
+            xcrun lipo "$library" -verify_arch arm64
           fi
           for artifact in "$library" "$client" "$codec" "$placebo"; do
             test -s "$artifact"
