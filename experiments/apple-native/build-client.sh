@@ -20,7 +20,7 @@ mkdir -p "$4"
 output=$(cd -- "$4" && pwd)
 flags=(-fobjc-arc -Wall -Wextra -Werror -Wno-deprecated-declarations -O2
     -I"$mpv_source/include" -framework Foundation -framework AVFoundation
-    -framework CoreMedia -framework CoreVideo -framework CoreGraphics -framework QuartzCore)
+    -framework CoreMedia -framework CoreVideo -framework CoreGraphics -framework QuartzCore -framework ImageIO)
 if [[ $platform == macos ]]; then
     test -f "$mpv_build/libmpv.2.dylib"
     xcrun clang "${flags[@]}" -mmacosx-version-min=14.4 "$experiment_dir/client/smoke.m" \

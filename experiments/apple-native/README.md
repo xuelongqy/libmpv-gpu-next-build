@@ -113,6 +113,34 @@ Existing controls include `--start`, `--parameter-tests=yes`,
 and `--fail-native-after` hooks apply only to the preserved instrumented builds,
 not the final uninstrumented production library.
 
+## Native subtitles
+
+Use ordinary mpv subtitle selection (`sub-files`/`sub-add`, `sid`), visibility,
+delay and style options; the client does not decode or lay out subtitles.
+Native returns `target.osd` as a retained, transparent CGImage covering the
+requested target dimensions, including video margins. Apply it to the existing
+OSD CALayer on the UI thread and release it after use. Clear that layer when
+`target.osd` is null. Do not composite subtitles into the VideoToolbox buffer:
+the native video layer and its per-frame DV attachments remain unchanged.
+
+The native-only FFmpeg configuration now includes SRT/ASS/SUP demuxers and
+ASS/SubRip/PGS decoders. The default Vulkan/iOS configuration is unchanged.
+The smoke client accepts `--subtitle=/path/to/subtitles.ass`; on iOS use a
+Documents-relative path. Optional `--overlay-dir=/path/to/results` records the
+returned OSD images, and `--subtitle-controls=yes` runs the bounded control
+check. These are diagnostic outputs, not native video screenshots.
+
+The native source lock now includes Android's optional
+`mediacodec-embed-osd-surface`. It uses a second transparent Surface for mpv's
+existing OSD bitmap output, without replacing the decoder's video Surface or
+using gpu-next for subtitle layout. Keep the Java Surface global reference
+alive until its VO has stopped, and detach the decoder/VO before releasing
+either Surface. Omitting the option preserves the existing native behavior.
+The reviewed five-file Android client delta is in `android/subtitles.patch`;
+its separate, unpublished candidate prerequisites are documented in
+`android/README.md`. It is not a complete remote-buildable Android player or
+an Android native-DV source lock. See `ACCEPTANCE.md` for the actual tested scope.
+
 Native long runs use `--seconds=900 --audio=yes --mode=native`, without lifecycle
 mode. Default duration remains 8 seconds; 1–900 seconds are accepted. Long-only
 instrumentation hashes the whole input and samples playback/actual process

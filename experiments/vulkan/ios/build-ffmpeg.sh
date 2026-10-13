@@ -41,6 +41,10 @@ if [[ -z $native_platform ]]; then
     }
 fi
 mkdir -p "$ffmpeg_build"
+subtitle_args=()
+if [[ -n $native_platform ]]; then
+    subtitle_args=("--enable-demuxer=srt,ass,sup" "--enable-decoder=ass,subrip,pgssub")
+fi
 cd "$ffmpeg_build"
 "$ffmpeg_source/configure" --prefix="$prefix" \
     "${platform_args[@]}" \
@@ -52,7 +56,7 @@ cd "$ffmpeg_build"
     --enable-demuxer=matroska,mov,image2 --enable-protocol=file \
     --enable-filter=buffer,buffersink,abuffer,abuffersink,format,scale,null,anull,aresample \
     --enable-pthreads --enable-videotoolbox \
-    --enable-hwaccel=h264_videotoolbox,hevc_videotoolbox
+    --enable-hwaccel=h264_videotoolbox,hevc_videotoolbox "${subtitle_args[@]}"
 grep -Fx '#define CONFIG_PNG_ENCODER 1' config_components.h
 make -j "$jobs"
 make install

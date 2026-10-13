@@ -277,3 +277,97 @@ for both platforms. The iOS app was not provisioned or installed; no binaries
 were published. This is build/patch acceptance only, not a new device playback,
 audio, HDR-display, full Meson suite or Vulkan validation result. Earlier failed
 runs and runtime limits remain recorded above.
+
+## Native subtitle candidate — 2026-10-13
+
+This is an **uncommitted, isolated candidate**, not a source-lock update or CI
+result. Apple production code is unchanged. Native-only FFmpeg build options
+enable existing SRT/ASS/SUP demuxers and ASS/SubRip/PGS decoders; its accepted
+patch and source tree still match `versions.env`. The default iOS/Vulkan build
+arguments are unchanged. Android adds an optional transparent OSD Surface to
+`mediacodec_embed`; MediaCodec continues to own the separate video Surface.
+No gpu-next renderer, decoder or FFmpeg source changes were added here.
+
+| Check | Result |
+| --- | --- |
+| Mac / iPhone SRT, ASS, PGS; HDR10+ASS; DV Profile 5+PGS | 5/5 each; bitmap timing, alpha and palette checked |
+| Mac / iPhone pause, seek, visibility, delay, track selection, resize and stop clear | 10 cycles each |
+| Pixel 4 SDR SRT/PGS and HDR10 ASS/PGS | Pass; actual MediaCodec; overlay readback checked |
+| Pixel 4 control / rotation / Surface / background / reload | 10 control cycles; 5 lifecycle cycles |
+| TV box SDR+PGS, HDR10+ASS, DV+SRT/ASS/PGS | Pass; initial HDMI sampling was during the subtitle gap; visible-subtitle follow-up below |
+| TV box Surface, background and reload | 3 cycles with DV+ASS; restored subtitle pixels checked |
+| Android default / old gpu / gpu-next | Valid short playback; render paths do not create the native OSD Surface |
+
+PGS palette checks preserve transparent pixels and half alpha, with white/cyan
+color probes within one 8-bit code value. ASS positioning and animation passed on Apple. Android
+readbacks confirm an independently transparent subtitle Surface; they are not
+video/HDR screenshots or proof of absolute subtitle luminance.
+
+Historical failures remain in the private evidence. The first Android rapid
+track change left stale text; deferring OSD redraw until the VO core consumes
+its request passed the unchanged 10-cycle reproducer. Raw SUP seeking into a
+display set was also empty on the unchanged Apple native VO. The same PGS
+segments, grouped with FFmpeg's existing `pgs_frame_merge` filter into Matroska
+while preserving PTS, passed seeking on both paths; no subtitle decoder patch
+was made. The first remux accidentally rebased timestamps and remains failed.
+The TV launcher does not consistently call `onStop`: background checks now
+require a different resumed activity and paused mpv, then verify resumed audio,
+video and subtitle pixels; explicit Surface destruction is tested separately.
+
+Eight offline build tests and syntax/diff checks passed. ShellCheck retains the
+two existing dynamically-sourced-variable warnings. The available Mac Meson
+run was 16 OK / 20 FAIL / 3 SKIP, identical by name/status to its unchanged
+baseline; missing generated fixtures, `vstack` and encode failures are not
+passes. No full sanitizer or new physical subtitle-brightness acceptance is
+claimed. Private evidence is `native-subtitles-20261013.YubNVy/REPORT.md`;
+all original source workspaces, locks, tags and dirty diffs remain unchanged.
+
+The final packaged clients repeated Mac default/native and 10-cycle subtitle
+checks, iPhone 10-cycle controls and DV+PGS pixel/RPU checks, and Android
+gpu-next/DV+PGS checks successfully. The first final iPhone launch was denied
+because the device was locked; that failed receipt is retained separately.
+
+### Subtitle review follow-up
+
+The new OSD initialization failure paths now release the native window, device
+reference and device list before returning: VO core does not call `uninit()`
+after failed `preinit()`. Five counted-resource failure checks passed; this is
+an offline check, not a device-loss test. Normal native/GPU behavior is unchanged.
+
+Pixel 4 passed two cycles and the TV box one cycle destroying/recreating the
+video and subtitle Surfaces separately, followed by foreground/rotation/reload
+checks as applicable. Restored subtitle pixels and playback progress passed.
+The box additionally reported `DolbyVision-Std` and `HDR10-GAMMA_ST2084` while
+the subtitle was actually visible. Default, gpu and gpu-next short regressions
+passed on Pixel 4. No fresh user brightness or sound confirmation is implied.
+
+Evidence checkers now reject `-O`, `-OO` and `PYTHONOPTIMIZE`, using the existing
+long-check policy; 12 optimization and two corrupt-evidence checks passed.
+Apple subtitle controls also retain the client's progress deadline: a stalled
+SUP-seek negative case exited 1 itself in 17.018 seconds, not external timeout.
+The normal ten-cycle control check and Mac/unsigned-iOS compilation passed.
+Historical failed records are kept, and no renderer or source lock was changed.
+
+### Subtitle publication — 2026-10-14
+
+The reviewed native VO change is saved as mpv
+`99177c09a62cac1cd64f8bb4065968d1edb3a046` on
+`feat/libmpv-native-subtitles`, based on the accepted Apple-native snapshot.
+That commit changes only `video/out/vo_mediacodec_embed.c`, including the
+initialization-failure cleanup. The native experiment now locks this commit;
+the stable OpenGL/Vulkan locks, FFmpeg patch/tree and libplacebo lock are unchanged.
+
+The Android client's five-file subtitle delta is preserved in
+`android/subtitles.patch`, with its exact candidate preimages documented beside
+it. Earlier Android DV decoder/client changes are not folded into this commit
+or source lock. Device results above used those earlier candidate prerequisites;
+they are not remote-clean-build acceptance of the published Android snapshot.
+
+Publication checks repeated the five resource-cleanup cases, twelve optimized-
+Python rejections and two corrupt-evidence rejections. Earlier runtime results
+and failures remain unchanged. Pixel 4 and the TV box were restored to their
+pre-test APKs; the installed APK hashes matched the backups. The box temporarily
+disconnected after testing, then restored successfully without clearing data,
+replaying media or changing TV/network/volume settings. No full sanitizer or
+additional physical iPhone test was run for publication; new CI results must be
+reported separately from the earlier native build acceptance.

@@ -1,6 +1,7 @@
 #import <Foundation/Foundation.h>
 #import <AVFoundation/AVFoundation.h>
 #import <QuartzCore/QuartzCore.h>
+#import <ImageIO/ImageIO.h>
 #import <CommonCrypto/CommonDigest.h>
 #include <TargetConditionals.h>
 #include <stdatomic.h>
@@ -102,6 +103,16 @@ static NSDictionary *buffer_info(CVPixelBufferRef buffer)
 @property(nonatomic) unsigned stalledVideoSeconds, stalledAudioSeconds, badSyncSeconds;
 @property(nonatomic, strong) NSMutableArray *progress;
 @property(nonatomic, strong) NSString *inputHash;
+@property(nonatomic, strong) NSMutableArray *subtitleFrames;
+@property(nonatomic, strong) id lastSubtitleImage;
+@property(nonatomic, strong) NSString *overlayDirectory;
+@property(nonatomic) unsigned subtitlePhase, subtitleCycles;
+@property(atomic) BOOL subtitleVisible;
+@property(atomic) double subtitlePTS;
+@property(atomic) unsigned subtitleResizes;
+@property(atomic) BOOL subtitleStopped;
+- (void)recordSubtitle:(CGImageRef)image;
+- (void)subtitleControls;
 - (void)scheduleRender;
 - (void)events;
 - (void)finish:(int)code;
@@ -169,6 +180,98 @@ static void wakeup(void *ctx)
 }
 
 @implementation NativeSmoke
+- (void)recordSubtitle:(CGImageRef)image
+{
+    NSString *directory = self.overlayDirectory;
+    if (!directory) return;
+    double pts = 0;
+    if (mpv_get_property(self.mpv, "time-pos", MPV_FORMAT_DOUBLE, &pts) < 0)
+        return;
+    self.subtitleVisible = image != NULL;
+    self.subtitlePTS = pts;
+    if (self.subtitleFrames.count && (__bridge CGImageRef)self.lastSubtitleImage == image) return;
+    self.lastSubtitleImage = (__bridge id)image;
+    NSMutableDictionary *entry = [@{@"playback_pts": @(pts), @"visible": @(image != NULL)} mutableCopy];
+    if (image) {
+        NSString *name = [NSString stringWithFormat:@"overlay-%04lu.png", (unsigned long)self.subtitleFrames.count];
+        NSURL *url = [NSURL fileURLWithPath:[directory stringByAppendingPathComponent:name]];
+        CGImageDestinationRef output = CGImageDestinationCreateWithURL((__bridge CFURLRef)url,
+            CFSTR("public.png"), 1, NULL);
+        if (!output) { self.errors++; return; }
+        CGImageDestinationAddImage(output, image, NULL);
+        if (!CGImageDestinationFinalize(output)) self.errors++;
+        CFRelease(output);
+        entry[@"image"] = name;
+        entry[@"width"] = @(CGImageGetWidth(image));
+        entry[@"height"] = @(CGImageGetHeight(image));
+    }
+    [self.subtitleFrames addObject:entry];
+    printf("SUBTITLE_OVERLAY PTS=%.6f VISIBLE=%d\n", pts, image != NULL);
+}
+- (void)subtitleControls
+{
+    double pts = [self.properties[@"time-pos"] doubleValue];
+    if (self.subtitlePhase == 0 && pts >= .75) {
+        mpv_command_async(self.mpv, 950, (const char *[]){"set", "pause", "yes", NULL});
+        self.subtitlePhase = 1;
+    } else if (self.subtitlePhase == 1 && [self.properties[@"pause"] boolValue]) {
+        self.restarting = YES;
+        mpv_command_async(self.mpv, 951, (const char *[]){"seek", ".75", "absolute+exact", NULL});
+        self.subtitlePhase = 2;
+    } else if (self.subtitlePhase == 2 && !self.restarting && self.subtitleVisible &&
+               fabs(self.subtitlePTS - .75) < .1) {
+        mpv_command_async(self.mpv, 952, (const char *[]){"set", "sub-visibility", "no", NULL});
+        self.subtitlePhase = 3;
+    } else if (self.subtitlePhase == 3 && !self.subtitleVisible) {
+        mpv_command_async(self.mpv, 953, (const char *[]){"set", "sub-visibility", "yes", NULL});
+        self.subtitlePhase = 4;
+    } else if (self.subtitlePhase == 4 && self.subtitleVisible) {
+        mpv_command_async(self.mpv, 954, (const char *[]){"set", "sub-delay", "2", NULL});
+        self.subtitlePhase = 5;
+    } else if (self.subtitlePhase == 5 && !self.subtitleVisible) {
+        mpv_command_async(self.mpv, 955, (const char *[]){"set", "sub-delay", "0", NULL});
+        self.subtitlePhase = 6;
+    } else if (self.subtitlePhase == 6 && self.subtitleVisible) {
+        mpv_command_async(self.mpv, 956, (const char *[]){"set", "sid", "no", NULL});
+        self.subtitlePhase = 7;
+    } else if (self.subtitlePhase == 7 && !self.subtitleVisible) {
+        mpv_command_async(self.mpv, 957, (const char *[]){"set", "sid", "1", NULL});
+        self.subtitlePhase = 8;
+    } else if (self.subtitlePhase == 8 && self.subtitleVisible) {
+        self.subtitlePhase = 9;
+        dispatch_async(self.renderQueue, ^{
+            CGSize size; @synchronized (self) { size = self.pixels; }
+            mpv_apple_native_target target = {.version=1, .w=(int)size.width+32, .h=(int)size.height+18};
+            int skip=1;
+            int err=mpv_render_context_render(self.render,
+                (mpv_render_param[]){{MPV_RENDER_PARAM_SKIP_RENDERING,&skip},{0}});
+            if (!err) err=mpv_render_context_render(self.render,
+                (mpv_render_param[]){{MPV_RENDER_PARAM_APPLE_NATIVE_TARGET,&target},{0}});
+            if (err || !target.osd || CGImageGetWidth(target.osd)!=(size_t)target.w ||
+                CGImageGetHeight(target.osd)!=(size_t)target.h) self.errors++;
+            if (target.osd) CGImageRelease(target.osd);
+            self.subtitleResizes++;
+        });
+    } else if (self.subtitlePhase == 9 && self.subtitleResizes > self.subtitleCycles) {
+        self.subtitleCycles++;
+        printf("SUBTITLE_CONTROLS_CYCLE=%u\n", self.subtitleCycles);
+        if (self.subtitleCycles < 10) self.subtitlePhase = 1;
+        else {
+            mpv_command_async(self.mpv, 958, (const char *[]){"stop", NULL});
+            self.subtitlePhase = 10;
+        }
+    } else if (self.subtitlePhase == 10 && !self.properties[@"time-pos"]) {
+        self.subtitlePhase = 11;
+        dispatch_async(self.renderQueue, ^{
+            mpv_apple_native_target target = {.version=1, .w=32, .h=18};
+            int err=mpv_render_context_render(self.render,
+                (mpv_render_param[]){{MPV_RENDER_PARAM_APPLE_NATIVE_TARGET,&target},{0}});
+            self.subtitleStopped = !err && !target.osd;
+            if (target.osd) CGImageRelease(target.osd);
+            dispatch_async(dispatch_get_main_queue(), ^{ [self finish:0]; });
+        });
+    }
+}
 - (void)parameterTests
 {
     mpv_apple_native_init_params init = {.version = 1, .display_layer = (__bridge void *)self.display};
@@ -300,6 +403,7 @@ static void wakeup(void *ctx)
                 }
 #endif
                 if (target.osd) self.overlays++;
+                if (native) [self recordSubtitle:target.osd];
                 CGRect video = target.video_rect;
                 video.origin.x /= scale; video.origin.y /= scale;
                 video.size.width /= scale; video.size.height /= scale;
@@ -402,6 +506,9 @@ static void wakeup(void *ctx)
                     [self.properties[@"current-ao"] isEqual:option(@"--ao", TARGET_OS_IPHONE ? @"audiounit" : @"coreaudio")];
                 if (self.lifecycle) valid &= self.seeks == 20 && self.skipped == 20 &&
                     self.screenshotFailures == 20 && self.overlays > 0 && self.lifecyclePhase == 6;
+                if ([option(@"--subtitle-controls", @"no") isEqual:@"yes"])
+                    valid = self.rendered > 12 && !self.errors && self.subtitleCycles == 10 &&
+                        self.subtitleResizes == 10 && self.subtitleStopped;
                 if ([option(@"--background-test", @"no") isEqual:@"yes"]) valid &= self.resumes > 0;
                 if ([option(@"--switch-feature", @"no") isEqual:@"yes"] ||
                     option(@"--fail-native-after", @"-1").intValue >= 0)
@@ -422,6 +529,16 @@ static void wakeup(void *ctx)
                     @"progress":self.progress,
                     @"input_sha256":self.inputHash ?: @"not_sampled",
                     @"requested_seconds": @(self.seconds), @"eligible_hdr": @(AVPlayer.eligibleForHDRPlayback)};
+                if (self.subtitleFrames) {
+                    if (option(@"--subtitle", nil) && (!self.overlays || !self.subtitleFrames.count)) result = 1;
+                    NSMutableDictionary *extended = [report mutableCopy];
+                    extended[@"exit_code"] = @(result);
+                    extended[@"subtitle_frames"] = self.subtitleFrames;
+                    extended[@"subtitle_cycles"] = @(self.subtitleCycles);
+                    extended[@"subtitle_resizes"] = @(self.subtitleResizes);
+                    extended[@"subtitle_stop_clear"] = @(self.subtitleStopped);
+                    report = extended;
+                }
                 NSString *name = [NSString stringWithFormat:@"native-%@.json", option(@"--case-id", @"manual")];
 #if TARGET_OS_IPHONE
                 NSString *path = [NSHomeDirectory() stringByAppendingPathComponent:[@"Documents/" stringByAppendingString:name]];
@@ -465,6 +582,13 @@ static void wakeup(void *ctx)
         self.rendered, [self.properties[@"hwdec-current"] description].UTF8String,
         [self.properties[@"current-ao"] description].UTF8String, (long)renderer.status,
         [self.properties[@"avsync"] description].UTF8String);
+    if ([option(@"--subtitle-controls", @"no") isEqual:@"yes"]) {
+        if (NSProcessInfo.processInfo.systemUptime - self.started > self.seconds + 15)
+            [self finish:1];
+        else
+            [self subtitleControls];
+        return;
+    }
     if (self.seconds > 60 && self.rendered > 0 && self.display.readyForDisplay) {
         double now = NSProcessInfo.processInfo.systemUptime;
         if (!self.firstProgressTime) {
@@ -584,6 +708,9 @@ static void wakeup(void *ctx)
     self.audio = [option(@"--audio", @"no") isEqual:@"yes"];
     self.lifecycle = [option(@"--lifecycle", @"no") isEqual:@"yes"];
     self.file = option(@"--file", nil);
+    if ([option(@"--subtitle-controls", @"no") isEqual:@"yes"] &&
+        (!option(@"--subtitle", nil) || !option(@"--overlay-dir", nil) ||
+         self.lifecycle || ![option(@"--mode", @"native") isEqual:@"native"])) exit(2);
 #if TARGET_OS_IPHONE
     if (self.file && !self.file.isAbsolutePath)
         self.file = [NSHomeDirectory() stringByAppendingPathComponent:self.file];
@@ -648,6 +775,21 @@ static void wakeup(void *ctx)
         {"keep-open","yes"},{"audio-channels","stereo"},{"volume","50"}};
     for (unsigned i = 0; i < sizeof(opts) / sizeof(opts[0]); i++)
         if (mpv_set_option_string(self.mpv, opts[i][0], opts[i][1]) < 0) exit(1);
+    NSString *subtitle = option(@"--subtitle", nil);
+    NSString *overlayDirectory = option(@"--overlay-dir", nil);
+#if TARGET_OS_IPHONE
+    if (subtitle && !subtitle.isAbsolutePath) subtitle = [NSHomeDirectory() stringByAppendingPathComponent:subtitle];
+    if (overlayDirectory && !overlayDirectory.isAbsolutePath)
+        overlayDirectory = [NSHomeDirectory() stringByAppendingPathComponent:overlayDirectory];
+#endif
+    if (subtitle && mpv_set_option_string(self.mpv, "sub-files", subtitle.UTF8String) < 0) exit(1);
+    if (overlayDirectory) {
+        if (![NSFileManager.defaultManager createDirectoryAtPath:overlayDirectory
+            withIntermediateDirectories:YES attributes:nil error:nil]) exit(1);
+        self.subtitleFrames = [NSMutableArray array];
+        self.overlayDirectory = overlayDirectory;
+        if (mpv_set_option_string(self.mpv, "osd-level", "0") < 0) exit(1);
+    }
     if (mpv_set_option_string(self.mpv, "start", option(@"--start", @"0").UTF8String) < 0) exit(1);
     if (mpv_set_option_string(self.mpv, "hwdec", "no") < 0) exit(1);
     if (mpv_set_option_string(self.mpv, self.audio ? "ao" : "audio",
@@ -736,7 +878,8 @@ static void wakeup(void *ctx)
     const char *load[] = {"loadfile", self.file.UTF8String, NULL};
     if (mpv_command_async(self.mpv, 100, load) < 0) exit(1);
     self.started = NSProcessInfo.processInfo.systemUptime;
-    [NSTimer scheduledTimerWithTimeInterval:self.lifecycle ? .1 : 1 target:self selector:@selector(tick:) userInfo:nil repeats:YES];
+    [NSTimer scheduledTimerWithTimeInterval:(self.lifecycle || [option(@"--subtitle-controls", @"no") isEqual:@"yes"]) ? .1 : 1
+        target:self selector:@selector(tick:) userInfo:nil repeats:YES];
 }
 
 #if TARGET_OS_IPHONE
