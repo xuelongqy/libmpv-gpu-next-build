@@ -1,0 +1,139 @@
+name: experimental Apple native builds
+
+on:
+  push:
+    branches: [feat/apple-native-experimental-delivery]
+  pull_request:
+    branches: [feat/apple-native-experimental-delivery]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: native ${{ matrix.platform }}
+    runs-on: macos-15
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [macos, ios]
+    defaults:
+      run:
+        shell: bash
+    env:
+      NATIVE_PLATFORM: ${{ matrix.platform }}
+      WORK_ROOT: ${{ github.workspace }}/.work/apple-native-ci/${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v5
+        id: checkout
+        with:
+          persist-credentials: false
+      - name: Check Xcode and SDKs
+        id: sdk
+        run: |
+          mkdir -p "$WORK_ROOT/evidence"
+          {
+            uname -m
+            xcodebuild -version
+            xcrun --sdk macosx --show-sdk-version
+            xcrun --sdk iphoneos --show-sdk-version
+            xcrun clang --version
+          } | tee "$WORK_ROOT/evidence/environment.txt"
+          python3 - "$(xcrun --sdk macosx --show-sdk-version)" \
+            "$(xcrun --sdk iphoneos --show-sdk-version)" <<'PY'
+          import sys
+          for actual, required, name in zip(sys.argv[1:], [(14, 4), (17, 4)], ['macOS', 'iOS']):
+              if tuple(map(int, actual.split('.'))) < required:
+                  raise SystemExit(f'{name} SDK {actual} is below {required[0]}.{required[1]}')
+          PY
+      - name: Install build and check tools
+        id: tools
+        run: |
+          brew install ninja pkgconf shellcheck
+          python3 -m venv "$RUNNER_TEMP/native-ci-python"
+          "$RUNNER_TEMP/native-ci-python/bin/python" -m pip install meson==1.12.1
+          echo "$RUNNER_TEMP/native-ci-python/bin" >> "$GITHUB_PATH"
+          if [[ $NATIVE_PLATFORM == macos ]]; then
+            brew install libass shaderc vulkan-headers vulkan-loader
+          fi
+          for tool in git xcrun make shasum python3 gh unzip; do
+            command -v "$tool"
+          done
+      - name: Check scripts and patch protection
+        id: checks
+        run: |
+          for script in experiments/apple-native/*.sh; do
+            bash -n "$script"
+          done
+          shellcheck -x -P SCRIPTDIR experiments/apple-native/*.sh
+          python3 experiments/apple-native/test-build.py
+          test "$(meson --version)" = 1.12.1
+      - name: Build the remote-locked native combination
+        id: build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          bash experiments/apple-native/build.sh "$NATIVE_PLATFORM" 2>&1 | tee "$WORK_ROOT/build.log"
+      - name: Verify libraries and client artifacts
+        id: artifacts
+        run: |
+          if [[ $NATIVE_PLATFORM == macos ]]; then
+            prefix="$WORK_ROOT/macos/prefix"
+            library="$WORK_ROOT/macos/build-mpv/libmpv.2.dylib"
+            client="$WORK_ROOT/macos/client/native-smoke"
+            codec="$prefix/lib/libavcodec.dylib"
+            placebo="$prefix/lib/libplacebo.dylib"
+            test -x "$client"
+            otool -L "$client"
+            otool -L "$library"
+          else
+            prefix="$WORK_ROOT/ios-device/prefix"
+            library="$WORK_ROOT/ios-device/build-mpv/libmpv.a"
+            client="$WORK_ROOT/ios-device/client/NativeSmoke.app/NativeSmoke"
+            codec="$prefix/lib/libavcodec.a"
+            placebo="$prefix/lib/libplacebo.a"
+            test -s "$WORK_ROOT/ios-device/client/NativeSmoke.app/Info.plist"
+            test ! -e "$WORK_ROOT/ios-device/client/NativeSmoke.app/embedded.mobileprovision"
+            xcrun lipo -verify_arch arm64 "$client"
+            xcrun lipo -verify_arch arm64 "$library"
+          fi
+          for artifact in "$library" "$client" "$codec" "$placebo"; do
+            test -s "$artifact"
+          done
+          file "$library" "$client"
+          shasum -a 256 "$library" "$client" "$codec" "$placebo" \
+            "$WORK_ROOT/src/mpv/include/mpv/render_apple.h" \
+            > "$WORK_ROOT/evidence/artifacts.sha256"
+          bash experiments/apple-native/prepare-ffmpeg.sh --check "$WORK_ROOT/src/ffmpeg"
+      - name: Summarize results without publishing binaries
+        if: always()
+        env:
+          CHECKOUT_RESULT: ${{ steps.checkout.outcome }}
+          SDK_RESULT: ${{ steps.sdk.outcome }}
+          TOOLS_RESULT: ${{ steps.tools.outcome }}
+          CHECKS_RESULT: ${{ steps.checks.outcome }}
+          BUILD_RESULT: ${{ steps.build.outcome }}
+          ARTIFACT_RESULT: ${{ steps.artifacts.outcome }}
+        run: |
+          {
+            printf '## Apple native / %s\n\n' "$NATIVE_PLATFORM"
+            printf '| Step | Result |\n| --- | --- |\n'
+            printf '| Checkout | %s |\n| SDKs | %s |\n| Tools | %s |\n| Patch checks | %s |\n| Build | %s |\n| Artifacts | %s |\n\n' \
+              "$CHECKOUT_RESULT" "$SDK_RESULT" "$TOOLS_RESULT" "$CHECKS_RESULT" "$BUILD_RESULT" "$ARTIFACT_RESULT"
+            if [[ -f experiments/apple-native/versions.env ]]; then
+              printf 'Source lock:\n```text\n'
+              cat experiments/apple-native/versions.env
+              printf '```\n'
+            else
+              printf 'Source lock is unavailable in this checkout.\n'
+            fi
+            for evidence in environment.txt "tools-$NATIVE_PLATFORM.txt" artifacts.sha256; do
+              if [[ -f $WORK_ROOT/evidence/$evidence ]]; then
+                printf '\n### %s\n```text\n' "$evidence"
+                cat "$WORK_ROOT/evidence/$evidence"
+                printf '```\n'
+              fi
+            done
+            printf '\nBuild and patch checks only; no signing, device playback or HDR display acceptance.\n'
+          } >> "$GITHUB_STEP_SUMMARY"
