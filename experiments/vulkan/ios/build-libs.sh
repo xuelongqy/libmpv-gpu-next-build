@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
+if [[ $# == 1 && $1 == --apple-native ]]; then set -- -Dapple-native=enabled;
+elif [[ $# != 0 ]]; then echo 'usage: build-libs.sh [--apple-native]' >&2; exit 2; fi
 # shellcheck source=common.sh
 source "$(dirname -- "$0")/common.sh"
 export MACOS_SDK="$sdk"
@@ -52,7 +54,7 @@ setup_meson "$source_root/mpv" "$ios_work/build-mpv" --cross-file "$ios_work/cro
     --auto-features disabled -Dlibmpv=true -Dcplayer=false -Dtests=false \
     -Dgl=disabled -Dplain-gl=disabled -Dvulkan=enabled -Dvideotoolbox-pl=enabled \
     -Dcocoa=disabled -Dswift-build=disabled -Dcoreaudio=disabled \
-    -Daudiounit=enabled -Davfoundation=disabled -Dlua=disabled
+    -Daudiounit=enabled -Davfoundation=disabled -Dlua=disabled "$@"
 meson compile -C "$ios_work/build-mpv" -j "$jobs"
 meson install -C "$ios_work/build-mpv"
 echo "IOS_LIBRARY_BUILD=PASS PLATFORM=$platform"

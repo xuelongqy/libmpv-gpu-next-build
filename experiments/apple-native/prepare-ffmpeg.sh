@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
+check=false
+if [[ $# == 2 && $1 == --check ]]; then check=true; shift; fi
 if [[ $# != 1 ]]; then
-    echo 'usage: prepare-ffmpeg.sh FFMPEG_SOURCE' >&2
+    echo 'usage: prepare-ffmpeg.sh [--check] FFMPEG_SOURCE' >&2
     exit 2
 fi
 experiment_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+unset FFMPEG_COMMIT FFMPEG_PATCH FFMPEG_PATCH_SHA256 FFMPEG_PATCHED_TREE
 # shellcheck source-path=SCRIPTDIR
 # shellcheck source=versions.env
 source "$experiment_dir/versions.env"
@@ -27,8 +30,13 @@ if [[ "$actual" != "$FFMPEG_COMMIT" ]]; then
     exit 2
 fi
 status=$(git -C "$ffmpeg_source" status --porcelain)
-if [[ -n "$status" ]]; then
+if [[ $check == false && -n "$status" ]]; then
     echo "FFmpeg checkout is dirty; refusing to overwrite it: $ffmpeg_source" >&2
+    exit 2
+fi
+if ! git -C "$ffmpeg_source" diff --cached --quiet --ita-visible-in-index "$FFMPEG_COMMIT" -- ||
+   [[ -n $(git -C "$ffmpeg_source" ls-files --others --exclude-standard) ]]; then
+    echo "FFmpeg checkout has staged or untracked changes: $ffmpeg_source" >&2
     exit 2
 fi
 patch_file="$experiment_dir/$FFMPEG_PATCH"
@@ -37,23 +45,26 @@ if [[ "${checksum%% *}" != "$FFMPEG_PATCH_SHA256" ]]; then
     echo "FFmpeg patch checksum mismatch: $patch_file" >&2
     exit 2
 fi
-git -C "$ffmpeg_source" apply --check "$patch_file"
+if [[ $check == false ]]; then git -C "$ffmpeg_source" apply --check "$patch_file"; fi
 
 # Verify the complete result without changing the caller's index or source files.
 check_dir=$(mktemp -d "${TMPDIR:-/tmp}/mpv-native-ffmpeg.XXXXXX")
 trap 'rm -f -- "$check_dir/index" "$check_dir/index.lock"; rmdir -- "$check_dir"' EXIT
 GIT_INDEX_FILE="$check_dir/index" git -C "$ffmpeg_source" read-tree "$FFMPEG_COMMIT"
 GIT_INDEX_FILE="$check_dir/index" git -C "$ffmpeg_source" add -u
-if ! GIT_INDEX_FILE="$check_dir/index" git -C "$ffmpeg_source" diff --cached --quiet "$FFMPEG_COMMIT" --; then
+if [[ $check == false ]] &&
+   ! GIT_INDEX_FILE="$check_dir/index" git -C "$ffmpeg_source" diff --cached --quiet "$FFMPEG_COMMIT" --; then
     echo "FFmpeg working tree differs from the locked base; refusing to overwrite it: $ffmpeg_source" >&2
     exit 2
 fi
-GIT_INDEX_FILE="$check_dir/index" git -C "$ffmpeg_source" apply --cached "$patch_file"
+if [[ $check == false ]]; then
+    GIT_INDEX_FILE="$check_dir/index" git -C "$ffmpeg_source" apply --cached "$patch_file"
+fi
 tree=$(GIT_INDEX_FILE="$check_dir/index" git -C "$ffmpeg_source" write-tree)
 if [[ "$tree" != "$FFMPEG_PATCHED_TREE" ]]; then
     echo "FFmpeg patched tree mismatch: expected $FFMPEG_PATCHED_TREE, got $tree" >&2
     exit 2
 fi
-git -C "$ffmpeg_source" apply "$patch_file"
+if [[ $check == false ]]; then git -C "$ffmpeg_source" apply "$patch_file"; fi
 printf 'FFMPEG_SOURCE_READY=1 BASE=%s PATCH_SHA256=%s TREE=%s\n' \
     "$FFMPEG_COMMIT" "$FFMPEG_PATCH_SHA256" "$tree"

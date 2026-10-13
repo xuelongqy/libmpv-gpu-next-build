@@ -39,10 +39,33 @@ fall back to software. No window or swapchain is created for the caller.
 
 ## Build and reproduce
 
-The client sources are the tested private client, copied byte-for-byte. The
-compile-only helper removes private paths and signing information; it does not
-build dependencies, sign/install an app, copy media or change device settings.
-Prepare a clean FFmpeg checkout before compiling dependencies:
+The complete entry builds the locked FFmpeg with its patch, libplacebo, libmpv
+and the native client in an isolated `WORK_ROOT`. It reuses the Vulkan checkout
+helpers, FFmpeg configuration and iOS dependency/cross-build scripts. Requires
+macOS/Xcode, Git, Meson/Ninja, pkg-config, make and shasum; macOS also needs
+shaderc, Vulkan and libass development files. iOS uses the existing checksum-
+locked dependency archives; set `IOS_DEPENDENCY_CACHE` to reuse downloads.
+iOS also requires unzip, and gh when the archives are not already cached.
+
+```sh
+WORK_ROOT="$PWD/.work/apple-native-macos" bash experiments/apple-native/build.sh macos
+WORK_ROOT="$PWD/.work/apple-native-ios" bash experiments/apple-native/build.sh ios
+```
+
+The iOS entry builds arm64 devices only and produces an unsigned app. Neither
+entry signs/installs apps, copies media or changes device settings. Tests and
+runtime acceptance are separate from build success. Each source checkout is
+checked before building; unexpected changes are rejected, never reset/cleaned.
+The intentional FFmpeg patch can be reused only if its complete tree matches
+the lock, its index is unstaged, and no untracked source changes are present.
+This also rejects edits hidden with `assume-unchanged` or `skip-worktree`.
+
+Until the native mpv commit is published, preseed `$WORK_ROOT/src/mpv` using a
+clone of the accepted local checkout (or import its Git bundle). The entry still
+checks the full locked SHA; this is not remote reproducibility acceptance.
+Do not point it at an original development checkout.
+
+For a dependency build managed separately, prepare a clean FFmpeg checkout:
 
 ```sh
 source experiments/apple-native/versions.env
@@ -56,13 +79,14 @@ patched Git tree against the accepted source, then applies the patch without
 staging or committing. Dirty checkouts and mismatches fail; nothing is reset or
 cleaned. Actual tracked file contents are checked in a temporary index, including
 edits hidden from Git status. Run it once per fresh checkout, not again on an
-already-patched source.
+already-patched source. `--check` validates a previously prepared checkout
+without modifying it; the complete entry uses this before and after compilation.
 An existing checkout at the locked official commit can be passed instead.
 
-Build FFmpeg from that prepared source with the existing macOS/iOS configure
-options and VideoToolbox HEVC hwaccel enabled, then build the locked mpv with
-`apple-native` enabled against those libraries. The client helper remains
-compile-only and does not apply patches to an already-built dependency.
+The complete entry enables VideoToolbox HEVC hardware decoding and builds mpv
+with `apple-native` enabled against the candidate libraries. The lower-level
+`build-client.sh` remains compile-only and does not apply patches to an
+already-built dependency.
 `vt_native_dv` remains default-off and is selected by native output, not by
 ordinary gpu-next decoding. This packages the existing patch; no additional
 native-disable patch or decoding behavior change is introduced.
@@ -103,6 +127,10 @@ python3 experiments/apple-native/check-long.py /path/to/private-long-evidence
 The checker expects the original run's `media-long.sha256`, Mac
 `macos-native-900` and iPhone `ios-native-900-r2` case/report JSON pairs, as
 listed in `ACCEPTANCE.md`. Python optimization is explicitly rejected.
+
+Use `python3 experiments/apple-native/test-build.py` for the small offline
+patched-source/local-edit regression checks; it uses temporary Git fixtures,
+not real dependencies or devices.
 
 ## Limits
 

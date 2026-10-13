@@ -121,3 +121,87 @@ inputs retained their bytes, index flags and staged state. Clean application
 still reproduced the accepted tree, with the caller's index hash unchanged.
 The patch/hash, client helper, stable locks and historical playback results
 remain unchanged. No new compilation or playback acceptance is implied.
+
+## Complete-entry locked rebuild — 2026-10-13
+
+The new `build.sh macos|ios` rebuilt FFmpeg, libplacebo, libmpv and the packaged
+client in fresh, separate platform directories. Source identity remained
+mpv `8e68ec151e8011516160a1f353a6af67da9938e5`, libplacebo
+`16140c6d4ee129d79746c89755e0631e065d423c`, official FFmpeg
+`bf1b838f2ab88b4f8fd83443325c782ea0e0f7fa` plus the locked patch. The complete
+patched tree was checked before and after compilation and remained
+`d4908008dca897816a37f2e1b8d9cc305e69f766`. Existing prepared FFmpeg sources
+were reused on retries only after the same read-only check; no source edits were
+reset, cleaned or staged.
+
+Mac runtime dyld records resolved libmpv and every FFmpeg/libplacebo library to
+the candidate build/prefix, not the older private installation. iOS used freshly
+rebuilt static archives, a newly signed app and an installation receipt with
+bundle version `2026101301`; reports were copied from that app's Documents.
+Headers came from the locked mpv checkout. The existing dependency archives and
+digests were reused without SDK/dependency upgrades.
+
+| Targeted runtime check | macOS M2 Max | iPhone 14 Pro |
+| --- | --- | --- |
+| Native SDR / HDR10 / DV Profile 5 | 3/3 pass | 3/3 pass |
+| Explicit render, default old gpu / explicit gpu-next | 2/2 pass, valid GL FBO | Vulkan gpu-next pass, valid target readback |
+| Auto SDR render / auto DV native | 2/2 pass | 2/2 pass |
+| Interpolation-triggered native → ordinary decoder/render fallback | Pass, 77 valid GPU frames | Pass, 98 valid GPU frames |
+| Native parameters, 20 context cycles, 20 seek/skip/screenshot-refusal cycles, stop/reload | Pass | Pass |
+
+All **9 Mac and 8 iOS runtime cases** exited zero and reported zero render
+errors. Native cases reported the actual `videotoolbox` decoder; render/fallback
+cases reported ordinary software decoding and valid GPU target content. Both
+lifecycle reports recorded 20 seeks, 20 skips and 20 expected screenshot
+refusals. The separate software default/render/auto/unsupported-native check
+passed. These were silent short regressions, not a new long-play, listening,
+absolute-HDR-brightness or per-frame metadata-probe acceptance. The iOS Vulkan
+fallback still uses static MoltenVK without validation; zero render errors are
+not a validation-layer result.
+
+Six offline patched-source checks passed, covering clean preparation/read-only
+validation, repeat-apply refusal, unpatched/extra/hidden/staged/untracked edits
+and preservation of caller contents/index. The unchanged default Vulkan iOS
+FFmpeg entry rejected the prepared native source with exit 2 before configure.
+Bash/Python syntax, ShellCheck and diff whitespace checks passed.
+
+The first Mac build failed because the existing dav1d include-path workaround
+had not been reused; the complete entry now uses the same flags as the Vulkan
+desktop builder. That failure log remains. The first iOS attempt is invalid:
+the entry was edited while Bash was waiting for a child build, so its resumed
+file read failed despite completed compilation. The fixed, unchanged entry's
+full retry passed. Do not count either first attempt as a passed build.
+Existing newer-macOS-library and duplicate-static-library link warnings,
+multiple-RPU seek warnings and historical Meson failures remain visible.
+
+Evidence is retained privately under `.work/native-build-20261013.PZYqdm`:
+`build-macos-r2`, `build-ios-r2`, `macos-native-dv`, platform `targeted-*.json`,
+individual case/report pairs, installation/identity receipts and the rejected
+`default-ffmpeg-refusal` case. Client and library SHA-256 values are in its
+`evidence/identity.txt`. Original workspaces and all source locks are unchanged;
+the native mpv source was preseeded locally, so remote clean checkout and CI
+remain unaccepted. Tests exited and left no playback/audio process running.
+
+## Entry review — 2026-10-13
+
+Two tooling regressions were reproduced and fixed without changing any source
+lock, patch, renderer or client. Empty optional arrays caused `set -u` failures
+on macOS system Bash 3.2; iOS now forwards positional arguments, and the native
+Mac builder uses the same approach for optional dav1d flags. The patched-source
+check also falsely accepted a local `git add -N` file; making intent-to-add
+entries visible to the index comparison now rejects it and preserves the file
+and caller index.
+
+Eight offline tests passed, including the two new regression checks. Under
+system Bash 3.2, the original and candidate default iOS Meson arguments match
+exactly; native adds only `-Dapple-native=enabled`. Mac dav1d-present/absent
+checks pass. Original and candidate default iOS FFmpeg entries both configured
+the clean official source using the real SDK: `config_components.h` is identical,
+and other feature definitions match. `make` was replaced by a diagnostic no-op,
+so this is a configuration comparison, not a new complete build. Wrong patch
+hash/tree and both hidden-edit flags were also rejected without index changes.
+
+Bash syntax, ShellCheck, Python checks and whitespace checks pass. Original
+workspaces and stable/experimental locks are unchanged. Earlier runtime and
+failure evidence above remains intact; no GPU, listening or long-play rerun is
+claimed. Review evidence is private under `.work/native-entry-review-20261013.hLW28k`.
