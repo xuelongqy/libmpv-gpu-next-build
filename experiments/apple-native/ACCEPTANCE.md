@@ -253,3 +253,27 @@ a new long-play/listening run, the full Meson/pixel matrix or iOS Vulkan
 validation. Prior failures and unverified capabilities remain as recorded above.
 Renderer, stable source locks, tags and original workspaces are unchanged;
 no additional production-code changes were needed.
+
+## Native CI build acceptance — 2026-10-13
+
+The native workflow built the unchanged source combination from remote locks on
+`macos-15`. FFmpeg remained official source plus the checked patch; no renderer,
+source lock or stable OpenGL change was needed.
+
+| Delivery commit / run | Mac native | Unsigned iOS native |
+| --- | --- | --- |
+| `0737c96` / [first run](https://github.com/xuelongqy/libmpv-gpu-next-build/actions/runs/38340603140) | Pass | Build passed; artifact check failed |
+| `3c93209` / [fixed run](https://github.com/xuelongqy/libmpv-gpu-next-build/actions/runs/38341166678) | Pass | Pass |
+
+The first iOS artifact check used `lipo -verify_arch arm64` before the input
+file. Xcode 16.4 interpreted the file path as another architecture and exited 1;
+that run remains failed. Commit `3c93209` changed only the two commands to
+`xcrun lipo "$client" -verify_arch arm64` and
+`xcrun lipo "$library" -verify_arch arm64`, retaining both ARM64 checks.
+
+The fixed run passed SDK/tool checks, all eight offline patch-protection tests,
+the complete locked-source builds, library/client artifact checks and summaries
+for both platforms. The iOS app was not provisioned or installed; no binaries
+were published. This is build/patch acceptance only, not a new device playback,
+audio, HDR-display, full Meson suite or Vulkan validation result. Earlier failed
+runs and runtime limits remain recorded above.

@@ -5,7 +5,8 @@ separate from the stable OpenGL and Vulkan source locks. `versions.env` records
 the mpv/libplacebo commits and an official FFmpeg commit plus a checked-in patch.
 No FFmpeg fork is required. The native mpv and delivery branches are published;
 remote-only clean builds and targeted Mac/iPhone regressions passed on
-2026-10-13 (see `ACCEPTANCE.md`). Native CI acceptance remains separate.
+2026-10-13. Native CI also passed for Mac and unsigned iOS builds (see
+`ACCEPTANCE.md`); build checks do not replace device playback acceptance.
 
 ## Modes and ownership
 
