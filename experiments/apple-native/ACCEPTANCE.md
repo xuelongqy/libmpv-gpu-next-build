@@ -371,3 +371,27 @@ disconnected after testing, then restored successfully without clearing data,
 replaying media or changing TV/network/volume settings. No full sanitizer or
 additional physical iPhone test was run for publication; new CI results must be
 reported separately from the earlier native build acceptance.
+
+## Native subtitle CI acceptance — 2026-10-14
+
+Delivery commit `886395719b3eee99b8e42dcb7cd79c5129ad85b9` passed the
+[native workflow](https://github.com/xuelongqy/libmpv-gpu-next-build/actions/runs/38428734546)
+using the published source lock, without local source seeding.
+
+| Job | Result |
+| --- | --- |
+| [Mac native](https://github.com/xuelongqy/libmpv-gpu-next-build/actions/runs/38428734546/job/115404967706) | Pass |
+| [Unsigned iOS arm64 native](https://github.com/xuelongqy/libmpv-gpu-next-build/actions/runs/38428734546/job/115404968199) | Pass |
+
+Each job passed all eight offline patch/local-edit protection tests, the
+complete locked-source build, library/client artifact checks and the final
+FFmpeg patched-tree check. iOS verified ARM64 library/client artifacts and
+produced an unsigned app without an embedded provisioning profile.
+
+This is build and patch acceptance only, not new device playback, audio, HDR
+display, full Meson-suite or Vulkan-validation acceptance. The first iOS lipo
+failure, subtitle/runtime failures and the 16 OK / 20 FAIL / 3 SKIP Mac Meson
+result remain recorded above; this run does not turn them into passes. Android's
+unpublished candidate prerequisites still prevent remote-clean-build acceptance
+of its five-file client delta. No renderer, source lock, stable combination or
+other workspace change was needed.
