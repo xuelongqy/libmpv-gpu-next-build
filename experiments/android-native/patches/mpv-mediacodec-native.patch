@@ -1,0 +1,24 @@
+diff --git a/video/decode/vd_lavc.c b/video/decode/vd_lavc.c
+index 7abd25ae2aa59f9638f530c37067f07091167662..97f38569a4f42e8ce63f4fd644faf3ad4ab20a54 100644
+--- a/video/decode/vd_lavc.c
++++ b/video/decode/vd_lavc.c
+@@ -890,6 +890,19 @@ static void init_avctx(struct mp_filter *vd)
+         av_opt_set_int(avctx, "vt_native_dv", 0, AV_OPT_SEARCH_CHILDREN);
+     }
+ 
++    if (lavc_codec->id == AV_CODEC_ID_HEVC) {
++        bool native = ctx->vo &&
++            strcmp(ctx->vo->driver->name, "mediacodec_embed") == 0 &&
++            ctx->hwdec.lavc_device == AV_HWDEVICE_TYPE_MEDIACODEC;
++        const AVPacketSideData *dovi = av_packet_side_data_get(
++            avctx->coded_side_data, avctx->nb_coded_side_data, AV_PKT_DATA_DOVI_CONF);
++        if (av_opt_set_int(avctx, "mc_native_dv", native && dovi,
++                           AV_OPT_SEARCH_CHILDREN) < 0 && native && dovi) {
++            MP_ERR(vd, "Native DV needs a compatible MediaCodec decoder.\n");
++            goto error;
++        }
++    }
++
+ #ifdef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
+     if (avctx->width > 8192 || avctx->height > 8192) {
+         MP_ERR(vd, "Frame size too big %" PRIu32 "x%" PRIu32 ".\n", avctx->width, avctx->height);

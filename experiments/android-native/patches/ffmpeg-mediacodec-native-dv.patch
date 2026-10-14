@@ -1,0 +1,82 @@
+diff --git a/libavcodec/mediacodecdec.c b/libavcodec/mediacodecdec.c
+index bc176d8070698754dd6cccccf18e57dba4b4187d..95c290d9b309e2cb1e4a516e930e0453b54d4a03 100644
+--- a/libavcodec/mediacodecdec.c
++++ b/libavcodec/mediacodecdec.c
+@@ -27,6 +27,7 @@
+ 
+ #include "libavutil/avassert.h"
+ #include "libavutil/common.h"
++#include "libavutil/dovi_meta.h"
+ #include "libavutil/mem.h"
+ #include "libavutil/opt.h"
+ #include "libavutil/intreadwrite.h"
+@@ -59,6 +60,7 @@ typedef struct MediaCodecH264DecContext {
+     int use_ndk_codec;
+     // Ref. MediaFormat KEY_OPERATING_RATE
+     int operating_rate;
++    int native_dv;
+ } MediaCodecH264DecContext;
+ 
+ static av_cold int mediacodec_decode_close(AVCodecContext *avctx)
+@@ -351,6 +353,32 @@ static av_cold int mediacodec_decode_init(AVCodecContext *avctx)
+         ret = hevc_set_extradata(avctx, format);
+         if (ret < 0)
+             goto done;
++
++        if (s->native_dv) {
++            const AVPacketSideData *dovi = av_packet_side_data_get(
++                avctx->coded_side_data, avctx->nb_coded_side_data, AV_PKT_DATA_DOVI_CONF);
++            if (dovi) {
++                const AVDOVIDecoderConfigurationRecord *cfg;
++                if (!dovi->data || dovi->size < sizeof(*cfg)) {
++                    av_log(avctx, AV_LOG_ERROR, "Invalid native MediaCodec DV configuration.\n");
++                    ret = AVERROR_INVALIDDATA;
++                    goto done;
++                }
++                cfg = (const AVDOVIDecoderConfigurationRecord *)dovi->data;
++                if (cfg->dv_version_major != 1 || cfg->dv_profile != 5 ||
++                    cfg->dv_level > 63 || cfg->rpu_present_flag != 1 ||
++                    cfg->el_present_flag || cfg->bl_present_flag != 1 ||
++                    cfg->dv_bl_signal_compatibility_id ||
++                    cfg->dv_md_compression != AV_DOVI_COMPRESSION_NONE) {
++                    av_log(avctx, AV_LOG_ERROR, "Native MediaCodec DV requires a single-layer Profile 5 stream.\n");
++                    ret = AVERROR(ENOSYS);
++                    goto done;
++                }
++                codec_mime = "video/dolby-vision";
++                // Android DolbyVisionProfileDvheStn, independent of the HEVC profile.
++                ff_AMediaFormat_setInt32(format, "profile", 32);
++            }
++        }
+         break;
+ #endif
+ #if CONFIG_MPEG2_MEDIACODEC_DECODER
+@@ -600,6 +628,8 @@ static const AVOption ff_mediacodec_vdec_options[] = {
+                    OFFSET(use_ndk_codec), AV_OPT_TYPE_BOOL, {.i64 = -1}, -1, 1, VD },
+     { "operating_rate", "The desired operating rate that the codec will need to operate at, zero for unspecified",
+             OFFSET(operating_rate), AV_OPT_TYPE_INT, {.i64 = 0}, 0, INT_MAX, VD },
++    { "mc_native_dv", "Use native Dolby Vision output with a MediaCodec Surface",
++            OFFSET(native_dv), AV_OPT_TYPE_BOOL, {.i64 = 0}, 0, 1, VD },
+     { NULL }
+ };
+ 
+diff --git a/libavcodec/mediacodecdec_common.c b/libavcodec/mediacodecdec_common.c
+index 9a627c06deeee6daa8eefc9671be3708cde76c0e..020cee8bedeea1995aebcd801c310fd8014c700b 100644
+--- a/libavcodec/mediacodecdec_common.c
++++ b/libavcodec/mediacodecdec_common.c
+@@ -772,7 +772,14 @@ static int mediacodec_dec_get_video_codec(AVCodecContext *avctx, MediaCodecDecCo
+         }
+     }
+ 
+-    profile = ff_AMediaCodecProfile_getProfileFromAVCodecContext(avctx);
++    if (!strcmp(mime, "video/dolby-vision")) {
++        if (!s->surface || !ff_AMediaFormat_getInt32(format, "profile", &profile)) {
++            av_log(avctx, AV_LOG_ERROR, "Native Dolby Vision needs a Surface and DV profile.\n");
++            return AVERROR(EINVAL);
++        }
++    } else {
++        profile = ff_AMediaCodecProfile_getProfileFromAVCodecContext(avctx);
++    }
+     if (profile < 0) {
+         av_log(avctx, AV_LOG_WARNING, "Unsupported or unknown profile\n");
+     }
