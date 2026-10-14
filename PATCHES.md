@@ -1,5 +1,9 @@
 # Downstream patch inventory
 
+This inventory describes the root OpenGL/GLES lock. The consolidated default
+branches also contain the separately locked Vulkan and native experiments;
+see the development entry points in `README.md`.
+
 ## mpv
 
 The immutable OpenGL/GLES v1 snapshot is
@@ -42,9 +46,9 @@ rewriting the original fix.
 
 ## Updating
 
-Keep each fork's `master` as a fast-forward mirror of its official upstream.
-Merge upstream into the corresponding maintained branch; do not rebase or
-force-push published maintenance history. Resolve only conflicts that intersect
-the downstream patch set, run the full validation matrix, then update
-`versions.env`. If upstream gains equivalent code, remove a downstream change
-only after behavior and regression tests pass with that change absent.
+Keep current downstream development on each fork's `master`. Track official
+upstream separately and merge it without rebasing or force-pushing published
+history. Pinned maintained branches and `versions.env` advance only after their
+own validation, as described in `MAINTENANCE.md`. If upstream gains equivalent
+code, remove a downstream change only after behavior and regression tests pass
+with that change absent.

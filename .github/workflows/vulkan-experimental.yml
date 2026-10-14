@@ -3,9 +3,9 @@ name: experimental software Vulkan
 on:
   workflow_dispatch:
   push:
-    branches: [feat/vulkan-experimental-delivery]
+    branches: [main, feat/vulkan-experimental-delivery]
   pull_request:
-    branches: [feat/vulkan-experimental-delivery]
+    branches: [main, feat/vulkan-experimental-delivery]
 
 permissions:
   contents: read

@@ -4,6 +4,21 @@ This repository pins and validates the source combination used by the
 maintained libmpv `gpu-next` OpenGL/GLES fork. It publishes no prebuilt
 libraries. The mpv and libplacebo forks remain the source of truth.
 
+## Development entry points
+
+Current development is consolidated on `xuelongqy/mpv:master`,
+`xuelongqy/libplacebo:master` and this repository's `main`. Historical feature
+and snapshot branches remain available, but are no longer the only entry to
+the implemented work. Official upstream history is tracked separately.
+
+The default OpenGL/GLES lock in `versions.env` is unchanged. Other validated
+combinations keep independent locks and instructions:
+[Vulkan](experiments/vulkan/README.md),
+[Apple native](experiments/apple-native/README.md) and
+[Android native](experiments/android-native/README.md). Build the chosen locked
+combination rather than silently substituting a source fork's latest `master`.
+FFmpeg native support remains official source plus the checked experiment patches.
+
 An opt-in [Vulkan desktop experiment](experiments/vulkan/README.md) has separate
 source locks and work directories. It does not replace this maintained
 OpenGL/GLES combination. Its Vulkan v1 ABI is stable within the downstream mpv

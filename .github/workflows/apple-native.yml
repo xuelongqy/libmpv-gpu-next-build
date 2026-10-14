@@ -2,9 +2,9 @@ name: experimental Apple native builds
 
 on:
   push:
-    branches: [feat/apple-native-experimental-delivery]
+    branches: [main, feat/apple-native-experimental-delivery]
   pull_request:
-    branches: [feat/apple-native-experimental-delivery]
+    branches: [main, feat/apple-native-experimental-delivery]
 
 permissions:
   contents: read

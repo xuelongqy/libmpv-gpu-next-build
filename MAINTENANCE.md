@@ -5,8 +5,11 @@ This repository validates source combinations for the maintained libmpv
 
 ## Branch invariants
 
-- The `master` branch in each source fork is a fast-forward mirror of its
-  official upstream `master` branch.
+- Each source fork's `master` is the consolidated downstream development
+  branch, not a pure upstream mirror. In the canonical source checkouts,
+  `origin/master` tracks official upstream and local `master` tracks `fork/master`.
+- This repository's `main` collects stable OpenGL/GLES and the independently
+  locked Vulkan, Apple native and Android native experiments.
 - Published maintained branches are updated with merge commits. Do not rebase
   or force-push them.
 - Immutable snapshot branches preserve the original downstream work. Do not
@@ -22,14 +25,15 @@ new source combination.
 
 For mpv and libplacebo, repeat this sequence independently:
 
-1. Fetch the official upstream and fast-forward the fork's `master` with
-   `git merge --ff-only`.
-2. Push the fork `master` without force.
-3. Merge that `master` into the maintained branch with a merge commit.
-4. Resolve only conflicts in the downstream patch surface, then push without
-   force.
-5. Run the complete pinned build and platform validation before changing
-   `versions.env`.
+1. Fetch official upstream into `origin/master`; do not replace the downstream
+   `master` with it.
+2. Merge `origin/master` into downstream `master`, preserving downstream history.
+3. Resolve only conflicts in the downstream patch surface and validate the
+   result before an explicitly requested push to `fork/master`, without force.
+4. Promote changes into a pinned maintained branch only as part of a separately
+   validated source-combination update, not merely because `master` advanced.
+5. Run the complete pinned build and platform validation before changing the
+   corresponding `versions.env`. Existing snapshots and tags remain unchanged.
 
 The weekly compatibility workflow performs these merges in temporary detached
 checkouts and builds the result. It reports compatibility only; it never
