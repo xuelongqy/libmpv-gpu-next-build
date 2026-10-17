@@ -80,6 +80,7 @@ struct app {
     int flip;
     int display;
     bool fullscreen;
+    bool auto_output;
     const char *start;
     enum output_mode output;
     const char *peak;
@@ -233,7 +234,7 @@ static void init_vulkan(struct app *a, bool window)
     CHECK(SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER) == 0);
     if (window) {
         int x = 60, y = 80;
-#ifdef _WIN32
+#if defined(_WIN32) || (defined(__linux__) && !defined(__ANDROID__))
         int displays = SDL_GetNumVideoDisplays();
         CHECK(displays > 0 && a->display < displays);
         for (int i = 0; i < displays; i++) {
@@ -248,7 +249,7 @@ static void init_vulkan(struct app *a, bool window)
             a->width, a->height, SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE |
             (a->fullscreen ? SDL_WINDOW_FULLSCREEN_DESKTOP | SDL_WINDOW_ALLOW_HIGHDPI : 0));
         CHECK(a->window);
-#ifdef _WIN32
+#if defined(_WIN32) || (defined(__linux__) && !defined(__ANDROID__))
         int actual_display = SDL_GetWindowDisplayIndex(a->window);
         fprintf(stderr, "WINDOW_DISPLAY=%d REQUESTED_DISPLAY=%d\n", actual_display, a->display);
         CHECK(a->display < 0 || actual_display == a->display);
@@ -625,10 +626,18 @@ static void create_mpv(struct app *a)
     int advanced = 1;
     mpv_render_param params[] = {
         {MPV_RENDER_PARAM_API_TYPE, MPV_RENDER_API_TYPE_VULKAN},
-        {MPV_RENDER_PARAM_RENDERER, "gpu-next"},
+        {a->auto_output ? MPV_RENDER_PARAM_OUTPUT_MODE : MPV_RENDER_PARAM_RENDERER,
+            a->auto_output ? "auto" : "gpu-next"},
         {MPV_RENDER_PARAM_VULKAN_INIT_PARAMS, &init},
         {MPV_RENDER_PARAM_ADVANCED_CONTROL, &advanced}, {0}};
     CHECK(mpv_render_context_create(&a->render, a->mpv, params) == 0);
+    if (a->auto_output) {
+        const char *actual = NULL;
+        CHECK(mpv_render_context_get_info(a->render,
+            (mpv_render_param){MPV_RENDER_PARAM_OUTPUT_MODE, &actual}) == 0);
+        CHECK(actual && !strcmp(actual, "render"));
+        fprintf(stderr, "OUTPUT_POLICY=auto ACTUAL_OUTPUT=%s API=vulkan (gpu-next)\n", actual);
+    }
     mpv_render_context_set_update_callback(a->render, wakeup, &a->dirty);
     a->loaded = false;
     a->configured = false;
@@ -1199,6 +1208,7 @@ int main(int argc, char **argv)
 #endif
         if (!strcmp(argv[i],"--window")) { window = true; continue; }
         if (!strcmp(argv[i],"--fullscreen")) { window = a.fullscreen = true; continue; }
+        if (!strcmp(argv[i],"--auto-output")) { a.auto_output = true; continue; }
         if (!strcmp(argv[i],"--timeline")) { a.timeline = true; continue; }
         if (!strcmp(argv[i],"--stress")) { stress = true; continue; }
         if (!strcmp(argv[i],"--probe")) { probes = true; continue; }
@@ -1217,6 +1227,9 @@ int main(int argc, char **argv)
         else if (!strcmp(key,"--start")) a.start = value;
         else if (!strcmp(key,"--hwdec")) {
             CHECK(!strcmp(value,"no") || !strcmp(value,"d3d11va-copy") || !strcmp(value,"videotoolbox-copy")
+#if defined(__linux__) && !defined(__ANDROID__)
+                  || !strcmp(value,"nvdec-copy")
+#endif
 #ifdef __APPLE__
                   || !strcmp(value,"videotoolbox")
 #endif
@@ -1240,7 +1253,7 @@ int main(int argc, char **argv)
         else if (!strcmp(key,"--width")) a.width = atoi(value);
         else if (!strcmp(key,"--height")) a.height = atoi(value);
         else if (!strcmp(key,"--hold-seconds")) hold_seconds = atoi(value);
-#ifdef _WIN32
+#if defined(_WIN32) || (defined(__linux__) && !defined(__ANDROID__))
         else if (!strcmp(key,"--display")) {
             char *end;
             long display = strtol(value, &end, 10);

@@ -26,7 +26,7 @@ separately, without relabeling older platform runs as new-combination passes.
 
 ## Source and interface identity
 
-- mpv: `498c2aa535e0f90dbb4404225e053dbc81f6342e`
+- mpv: `786f07561f35a51c6027e2f653aa19a7a4e26d47`
 - libplacebo: `b7779734692e4b6fbd72987976aa11aad51f7ee7`
 - Header: the candidate installation's `include/mpv/render_vk.h`, not a copied
   header or a source-tree include fallback. `MPV_VULKAN_API_VERSION` is 1;
@@ -97,6 +97,10 @@ On Windows the corresponding SDK binaries must be on PATH. No repository path,
 monitor name, audio UID or SDK install path is baked into the scripts.
 Linux uses the candidate prefix in `LD_LIBRARY_PATH`. Its separate
 `vulkan-experimental.yml` workflow leaves the stable OpenGL workflow untouched.
+Keep this prefix and its matching libplacebo together; a distribution libplacebo
+is not a substitute for the downstream fixes. A second libplacebo major may be
+loaded indirectly by FFmpeg; check the direct libmpv dependency and runtime
+module paths rather than rejecting a process solely for having both majors.
 The workflow pins LunarG's Noble validation layer 1.4.313 (with a checked package
 SHA-256), retaining the system loader and Mesa driver. Noble's stock 1.3.275 layer
 lacks the [ALL_COMMANDS/layout-transition fix](https://github.com/KhronosGroup/Vulkan-ValidationLayers/pull/7480)
@@ -119,10 +123,24 @@ bash experiments/vulkan/run.sh --window --output pq --hwdec videotoolbox-copy \
   --play-seconds 60 --audio-device YOUR_DEVICE --volume 50 VIDEO_WITH_AUDIO.mkv
 ```
 
-On Windows replace hwdec with `d3d11va-copy`; use `--display N` to select a
-display. Enumerate audio outputs with the candidate standalone mpv's
-`--no-config --audio-device=help`. Do not assume display 0 or the default audio
-endpoint is the intended TV.
+On Windows replace hwdec with `d3d11va-copy`; on Linux use `nvdec-copy` when
+supported by FFmpeg and the installed NVIDIA driver. Windows and Linux accept
+`--display N` to select a display. Enumerate audio outputs with the candidate
+standalone mpv's `--no-config --audio-device=help`. Do not assume display 0 or
+the default audio endpoint is the intended TV.
+
+On Linux, explicit Render API `native` currently returns
+`MPV_ERROR_NOT_IMPLEMENTED`; `auto` uses render output. Add `--auto-output` to
+the smoke command to test that policy without a renderer override and require
+`ACTUAL_OUTPUT=render`. Omission retains the client's explicit `gpu-next`
+selection. Neither mode creates the caller's Vulkan context, enables OS HDR,
+selects HDR output automatically, or provides native DV passthrough. The caller
+must supply a compatible target and presentation colorspace; DV is mapped to
+the explicitly selected SDR/PQ output by gpu-next.
+
+The [Ubuntu NVIDIA acceptance and reproduction](UBUNTU.md) records the current
+source pair, hardware/audio checks, 15-minute run and lifecycle limits. Those
+physical-device results are separate from Lavapipe CI and historical runs.
 
 ### macOS direct VideoToolbox mapping
 

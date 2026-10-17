@@ -1,9 +1,15 @@
 # Delivery validation
 
-Status: the experiment now locks Vulkan v1 / client API 2.8; its targeted ABI and
-compatibility checks are recorded below. The prior 2.7 remote-locked combination
-passes Linux software-Vulkan CI and the targeted iOS screenshot/background-recovery
-regression below. Those platform runs are not fresh 2.8-combination acceptance. The
+Status: the current lock is mpv `786f07561f35a51c6027e2f653aa19a7a4e26d47`
+and libplacebo `b7779734692e4b6fbd72987976aa11aad51f7ee7`, retaining Vulkan v1 /
+client API 2.8. The [2026-10-17 Ubuntu NVIDIA checks](UBUNTU.md) cover this source
+tree: the previously identified documentation/test diff is now committed, and
+the private client is identified separately.
+The lock update is not a fresh all-platform or remote-CI acceptance.
+The earlier targeted ABI and compatibility checks are recorded below. The prior
+2.7 remote-locked combination passes Linux software-Vulkan CI and the targeted
+iOS screenshot/background-recovery regression below. Those platform runs are not
+fresh 2.8-combination acceptance. The
 opt-in iOS PQ/hardware/background checks also pass with the private Metal-import
 validation-layer correction described below, not with the unmodified layer.
 The official layer misses synchronization coverage for imported Metal textures;
@@ -23,15 +29,41 @@ The original iOS hardware background failure also reproduces without Render API;
 the serialized client recovery and latest remote-locked regression below pass
 the tested recovery paths, not elimination of the OS session-invalidation trigger.
 
-Worktree base: `1245b72645002e9e284b42fcdd5588d06abc321e`, branch
-`feat/vulkan-experimental-delivery`. This branch contains the experimental
-delivery, separate from the stable maintained line. Production sources are
+Historical delivery worktree base: `1245b72645002e9e284b42fcdd5588d06abc321e`, branch
+`feat/vulkan-experimental-delivery`. Delivery is now consolidated on `main`,
+while the stable OpenGL source lock remains independent. Production sources are
 the two commits in this directory's `versions.env`.
 
 Resolution qualification: the earlier desktop matrices and voiced runs below
 used a 960x540 render target unless explicitly noted. A 4K display mode and a
 4K decoded source did not make those native-4K rendering tests. The Windows
 native-4K follow-up is recorded separately below.
+
+## 2026-10-17 Ubuntu NVIDIA / Linux output policy
+
+The [scoped report](UBUNTU.md) archives the source/library identities, exact
+coverage, reproduction commands and evidence index. The private checks pass:
+software SDR/HDR10/DV output, NVDEC-copy pixels/audio, 900.024 seconds of native-4K
+PQ playback, 50 Render API context cycles, 100 target rebuild/retire iterations
+(99 size changes), 20 same-file reloads and 20 seek/skip/screenshot/resume cycles.
+All normal runtime cases report zero Vulkan validation errors; pixel thresholds
+are unchanged. User picture/sound confirmation is recorded separately.
+
+Linux `native` remains unsupported; `auto` uses caller-managed render/gpu-next.
+The two-file mpv contract/test change is published as `786f07561f` and changes
+no renderer behavior; the experimental lock now includes it. The
+delivery smoke now accepts Linux monitor selection, NVDEC-copy and opt-in
+`--auto-output`; its default explicit gpu-next path is unchanged. Fresh migration
+checks pass 13/13, with 14/14 pixel comparisons and zero Vulkan validation
+errors, separately from the historical private-client long run. Review excludes
+Android from the desktop Linux guards; macOS/Android syntax checks pass.
+
+The failed native DMA-BUF compositor import, failed optional CUDA build setup,
+paused control-path wait diagnostics and earlier platform failures remain
+recorded, not waived as passes. No Linux zero-copy, native DV or all-device
+acceptance is claimed. The root OpenGL lock and Apple/Android native locks are
+unchanged. The pre-publication checks did not trigger CI; publication CI is
+tracked separately and is not claimed as a hardware-validation result.
 
 ## 2026-10-11 Vulkan v1 / client API 2.8
 
